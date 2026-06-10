@@ -65,7 +65,7 @@ export default function EditorClient({
   const [status, setStatus] = useState<SaveStatus>("gespeichert");
   const [korrigiere, setKorrigiere] = useState(false);
   const [diktiere, setDiktiere] = useState(false);
-  const [sidebar, setSidebar] = useState(true);
+  const [sidebar, setSidebar] = useState(false);
   const [exportOffen, setExportOffen] = useState(false);
   const [hinweis, setHinweis] = useState<string | null>(null);
   const [kapitel, setKapitel] = useState<Kapitel[]>([]);
@@ -74,6 +74,7 @@ export default function EditorClient({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionRef = useRef<any>(null);
   const titleRef = useRef(initialTitle);
+  const sidebarOpenedAt = useRef(0);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -213,6 +214,9 @@ export default function EditorClient({
   function zuKapitel(pos: number) {
     if (!editor) return;
     editor.chain().focus().setTextSelection(pos + 1).scrollIntoView().run();
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebar(false);
+    }
   }
 
   if (!editor) {
@@ -229,9 +233,13 @@ export default function EditorClient({
       <header className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
         <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
           <button
-            onClick={() => setSidebar((s) => !s)}
-            aria-label="Übersicht"
-            className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim"
+            type="button"
+            onClick={() => {
+              setSidebar(true);
+              sidebarOpenedAt.current = Date.now();
+            }}
+            aria-label="Kapitelübersicht"
+            className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim md:hidden"
           >
             <Icon name="list" />
           </button>
@@ -308,29 +316,30 @@ export default function EditorClient({
       </BubbleMenu>
 
       <div className="flex flex-1">
-        {/* ---- Kapitelübersicht ---- */}
+        {/* ---- Kapitelübersicht: Desktop (feste Spalte) ---- */}
+        <aside className="hidden w-64 shrink-0 border-r border-line bg-paper-dim/40 p-5 md:block">
+          <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} />
+        </aside>
+
+        {/* ---- Kapitelübersicht: Handy (ausklappbares Panel) ---- */}
         {sidebar && (
-          <aside className="hidden w-64 shrink-0 border-r border-line bg-paper-dim/40 p-5 md:block">
-            <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-ink-faint">Kapitel</h2>
-            {kapitel.length === 0 ? (
-              <p className="text-sm leading-relaxed text-ink-faint">
-                Schreibe den Kapitelnamen in eine eigene Zeile, setze den Cursor
-                hinein und drücke den Knopf „Kapitel". Die Übersicht entsteht dann
-                von selbst.
-              </p>
-            ) : (
-              <ul className="space-y-1">
-                {kapitel.map((k, i) => (
-                  <li key={i}>
-                    <button onClick={() => zuKapitel(k.pos)} className="group w-full rounded-lg px-3 py-2 text-left transition hover:bg-paper">
-                      <span className="block truncate font-serif text-ink group-hover:text-oxblood">{k.titel}</span>
-                      <span className="text-xs text-ink-faint">{k.woerter.toLocaleString("de-DE")} Wörter</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </aside>
+          <>
+            <div
+              className="fixed inset-0 z-30 bg-ink/30 md:hidden"
+              onClick={() => {
+                if (Date.now() - sidebarOpenedAt.current > 350) setSidebar(false);
+              }}
+            />
+            <aside className="fixed inset-y-0 left-0 z-40 w-72 max-w-[80%] overflow-y-auto border-r border-line bg-paper p-5 shadow-2xl md:hidden">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Kapitel</h2>
+                <button onClick={() => setSidebar(false)} aria-label="Schließen" className="rounded-lg p-1.5 text-ink-soft hover:bg-paper-dim">
+                  <Icon name="close" />
+                </button>
+              </div>
+              <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} ohneUeberschrift />
+            </aside>
+          </>
         )}
 
         {/* ---- Schreibfläche ---- */}
@@ -384,6 +393,50 @@ function FmtButton({ children, onClick, active, label }: { children: React.React
   );
 }
 
+function KapitelListe({
+  kapitel,
+  onWaehle,
+  ohneUeberschrift,
+}: {
+  kapitel: Kapitel[];
+  onWaehle: (pos: number) => void;
+  ohneUeberschrift?: boolean;
+}) {
+  return (
+    <>
+      {!ohneUeberschrift && (
+        <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-ink-faint">
+          Kapitel
+        </h2>
+      )}
+      {kapitel.length === 0 ? (
+        <p className="text-sm leading-relaxed text-ink-faint">
+          Schreibe den Kapitelnamen in eine eigene Zeile, setze den Cursor hinein
+          und drücke den Knopf „Kapitel". Die Übersicht entsteht dann von selbst.
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {kapitel.map((k, i) => (
+            <li key={i}>
+              <button
+                onClick={() => onWaehle(k.pos)}
+                className="group w-full rounded-lg px-3 py-2 text-left transition hover:bg-paper-dim"
+              >
+                <span className="block truncate font-serif text-ink group-hover:text-oxblood">
+                  {k.titel}
+                </span>
+                <span className="text-xs text-ink-faint">
+                  {k.woerter.toLocaleString("de-DE")} Wörter
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 function Icon({ name }: { name: string }) {
   const c = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
@@ -395,6 +448,7 @@ function Icon({ name }: { name: string }) {
     case "exit": return (<svg {...c}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>);
     case "center": return (<svg {...c}><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></svg>);
     case "quote": return (<svg {...c}><path d="M7 7h4v4c0 2-1 3-3 4M13 7h4v4c0 2-1 3-3 4" /></svg>);
+    case "close": return (<svg {...c}><path d="M6 6l12 12M18 6L6 18" /></svg>);
     default: return null;
   }
 }
