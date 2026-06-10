@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-serif: "Spectral", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter Tight", system-ui, sans-serif;
+}
+
+html,
+body {
+  background-color: theme("colors.paper");
+  color: theme("colors.ink");
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Sanfter, papierartiger Hintergrund mit leichter Körnung */
+body {
+  background-image:
+    radial-gradient(circle at 18% 12%, rgba(122, 43, 39, 0.04), transparent 42%),
+    radial-gradient(circle at 88% 78%, rgba(31, 27, 22, 0.035), transparent 40%);
+  background-attachment: fixed;
+}
+
+/* Schreibfläche: keine Ränder, kein UI-Gefühl */
+.manuscript-area {
+  font-family: var(--font-serif);
+  line-height: 1.85;
+  letter-spacing: 0.005em;
+  caret-color: theme("colors.oxblood");
+}
+
+.manuscript-area::placeholder {
+  color: theme("colors.ink-faint");
+  font-style: italic;
+}
+
+.manuscript-area:focus {
+  outline: none;
+}
+
+/* ---- Formatierter Editor-Inhalt (TipTap / ProseMirror) ---- */
+.manuscript-area p {
+  margin: 0 0 0.4em;
+}
+.manuscript-area em {
+  font-style: italic;
+}
+.manuscript-area strong {
+  font-weight: 600;
+}
+.manuscript-area h1 {
+  font-size: 1.6em;
+  font-weight: 600;
+  text-align: center;
+  margin: 1.8em 0 1em;
+  letter-spacing: -0.01em;
+}
+.manuscript-area blockquote {
+  margin: 1em 0;
+  padding-left: 1.1em;
+  border-left: 2px solid theme("colors.oxblood");
+  color: theme("colors.ink-soft");
+  font-style: italic;
+}
+/* Platzhalter, wenn leer */
+.manuscript-area p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: theme("colors.ink-faint");
+  font-style: italic;
+}
+
+/* Dünne Trennlinien */
+.hairline {
+  border-color: theme("colors.line");
+}
+
+/* sanftes Erscheinen */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Sehr dezente Scrollleiste */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(31, 27, 22, 0.15);
+  border-radius: 999px;
+  border: 3px solid theme("colors.paper");
+}
