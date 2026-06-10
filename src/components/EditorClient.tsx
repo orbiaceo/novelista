@@ -6,6 +6,7 @@ import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
+import { DOMSerializer } from "@tiptap/pm/model";
 import { createClient } from "@/lib/supabase/client";
 import ExportDialog from "@/components/ExportDialog";
 
@@ -155,11 +156,28 @@ export default function EditorClient({
   // ---- Lektorat per Knopfdruck (erhält die Formatierung) ----
   async function korrigierenLassen() {
     if (korrigiere || !editor) return;
-    const html = editor.getHTML();
-    if (!editor.getText().trim()) return;
+
+    const { state } = editor;
+    const { from, to, empty } = state.selection;
+
+    // Nichts markiert -> freundlich auffordern (kein Timeout bei langen Texten)
+    if (empty || from === to) {
+      setHinweis("Markiere zuerst den Text, den du korrigieren möchtest.");
+      setTimeout(() => setHinweis(null), 3500);
+      return;
+    }
+
+    // Markierten Bereich als HTML herauslösen (mit Formatierung)
+    const slice = state.doc.slice(from, to);
+    const serializer = DOMSerializer.fromSchema(state.schema);
+    const container = document.createElement("div");
+    container.appendChild(serializer.serializeFragment(slice.content));
+    const html = container.innerHTML;
+
+    if (!container.textContent?.trim()) return;
 
     setKorrigiere(true);
-    setHinweis("Manuskript wird lektoriert …");
+    setHinweis("Markierung wird lektoriert …");
     try {
       const res = await fetch("/api/correct", {
         method: "POST",
@@ -169,7 +187,12 @@ export default function EditorClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Fehler");
 
-      editor.commands.setContent(data.corrected, false);
+      editor
+        .chain()
+        .focus()
+        .deleteSelection()
+        .insertContent(data.corrected)
+        .run();
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
       setHinweis("Lektorat abgeschlossen.");
@@ -323,6 +346,10 @@ export default function EditorClient({
         </FmtButton>
         <FmtButton onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} label="Zitat">
           <Icon name="quote" />
+        </FmtButton>
+        <div className="mx-0.5 h-5 w-px bg-line" />
+        <FmtButton onClick={korrigierenLassen} label="Markierung korrigieren">
+          <Icon name="check" />
         </FmtButton>
       </BubbleMenu>
 
