@@ -75,6 +75,17 @@ export default function EditorClient({
   const recognitionRef = useRef<any>(null);
   const titleRef = useRef(initialTitle);
   const sidebarOpenedAt = useRef(0);
+  const headerRef = useRef<HTMLElement>(null);
+  const [headerH, setHeaderH] = useState(104);
+
+  useEffect(() => {
+    const messen = () => {
+      if (headerRef.current) setHeaderH(headerRef.current.offsetHeight);
+    };
+    messen();
+    window.addEventListener("resize", messen);
+    return () => window.removeEventListener("resize", messen);
+  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -230,7 +241,7 @@ export default function EditorClient({
   return (
     <div className="flex min-h-screen flex-col">
       {/* ---- Kopfzeile ---- */}
-      <header className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
+      <header ref={headerRef} className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
         <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
@@ -317,7 +328,10 @@ export default function EditorClient({
 
       <div className="flex flex-1">
         {/* ---- Kapitelübersicht: Desktop (feste Spalte) ---- */}
-        <aside className="hidden w-64 shrink-0 border-r border-line bg-paper-dim/40 p-5 md:block">
+        <aside
+          style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
+          className="sticky hidden w-64 shrink-0 overflow-y-auto border-r border-line bg-paper-dim/40 p-5 md:block"
+        >
           <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} />
         </aside>
 
