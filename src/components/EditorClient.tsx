@@ -12,11 +12,21 @@ import ExportDialog from "@/components/ExportDialog";
 
 type SaveStatus = "gespeichert" | "speichert" | "ungespeichert";
 
+interface ProjektInfo {
+  id: string;
+  title: string;
+  status: string;
+  word_count: number;
+  updated_at: string;
+}
+
 interface Props {
   initialContent: string;
   initialTitle: string;
   manuscriptId: string;
   userId: string;
+  projektStatus: string;
+  projekte: ProjektInfo[];
 }
 
 interface Kapitel {
@@ -60,6 +70,8 @@ export default function EditorClient({
   initialTitle,
   manuscriptId,
   userId,
+  projektStatus,
+  projekte,
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -69,6 +81,11 @@ export default function EditorClient({
   const [korrigiere, setKorrigiere] = useState(false);
   const [diktiere, setDiktiere] = useState(false);
   const [sidebar, setSidebar] = useState(false);
+
+  // Projektverwaltung (Bibliothek)
+  const [bibliothek, setBibliothek] = useState(false);
+  const [projektListe, setProjektListe] = useState<ProjektInfo[]>(projekte);
+  const [projektMenue, setProjektMenue] = useState<string | null>(null);
   const [exportOffen, setExportOffen] = useState(false);
   const [hinweis, setHinweis] = useState<string | null>(null);
   const [kapitel, setKapitel] = useState<Kapitel[]>([]);
@@ -175,7 +192,7 @@ export default function EditorClient({
       const { data: heutige } = await supabase
         .from("manuscript_backups")
         .select("id")
-        .eq("user_id", userId)
+        .eq("manuscript_id", manuscriptId)
         .gte("created_at", heuteStart.toISOString())
         .limit(1);
       if (heutige && heutige.length > 0) {
@@ -184,13 +201,13 @@ export default function EditorClient({
       }
       await supabase
         .from("manuscript_backups")
-        .insert({ user_id: userId, title: neuerTitel, content: html });
+        .insert({ user_id: userId, manuscript_id: manuscriptId, title: neuerTitel, content: html });
       letzteSicherung.current = jetzt;
-      // alte Stände über 10 hinaus entfernen
+      // alte Stände über 10 hinaus entfernen (pro Projekt)
       const { data: alle } = await supabase
         .from("manuscript_backups")
         .select("id")
-        .eq("user_id", userId)
+        .eq("manuscript_id", manuscriptId)
         .order("created_at", { ascending: false });
       if (alle && alle.length > 10) {
         const zuLoeschen = alle.slice(10).map((b: { id: string }) => b.id);
@@ -333,6 +350,73 @@ export default function EditorClient({
     router.push("/login");
   }
 
+  // ---- Projektverwaltung ----
+  function projektWaehlen(id: string) {
+    if (id === manuscriptId) {
+      setBibliothek(false);
+      return;
+    }
+    router.push("/editor?p=" + id);
+  }
+
+  async function projektNeu() {
+    const name = prompt("Titel des neuen Romans:");
+    if (!name || !name.trim()) return;
+    const { data } = await supabase
+      .from("manuscripts")
+      .insert({ user_id: userId, title: name.trim() })
+      .select("id")
+      .single();
+    if (data?.id) router.push("/editor?p=" + data.id);
+  }
+
+  async function projektUmbenennen(p: ProjektInfo) {
+    const name = prompt("Neuer Titel:", p.title);
+    if (!name || !name.trim()) return;
+    await supabase
+      .from("manuscripts")
+      .update({ title: name.trim() })
+      .eq("id", p.id);
+    setProjektListe((liste) =>
+      liste.map((x) => (x.id === p.id ? { ...x, title: name.trim() } : x))
+    );
+    if (p.id === manuscriptId) {
+      setTitle(name.trim());
+      titleRef.current = name.trim();
+    }
+    setProjektMenue(null);
+  }
+
+  async function projektStatusSetzen(p: ProjektInfo, neu: string) {
+    await supabase.from("manuscripts").update({ status: neu }).eq("id", p.id);
+    setProjektListe((liste) =>
+      liste.map((x) => (x.id === p.id ? { ...x, status: neu } : x))
+    );
+    setProjektMenue(null);
+    setHinweis(
+      neu === "fertig" ? `„${p.title}" abgeschlossen` : `„${p.title}" wieder aktiv`
+    );
+    setTimeout(() => setHinweis(null), 2200);
+  }
+
+  async function projektLoeschen(p: ProjektInfo) {
+    if (
+      !confirm(
+        `„${p.title}" wirklich unwiderruflich löschen? Das kann nicht rückgängig gemacht werden.`
+      )
+    )
+      return;
+    await supabase.from("manuscripts").delete().eq("id", p.id);
+    const rest = projektListe.filter((x) => x.id !== p.id);
+    setProjektListe(rest);
+    setProjektMenue(null);
+    if (p.id === manuscriptId) {
+      const ziel = rest.find((x) => x.status === "aktiv") ?? rest[0];
+      if (ziel) router.push("/editor?p=" + ziel.id);
+      else router.push("/editor");
+    }
+  }
+
   function zuKapitel(pos: number) {
     if (!editor) return;
     editor.chain().focus().setTextSelection(pos + 1).scrollIntoView().run();
@@ -396,7 +480,7 @@ export default function EditorClient({
     const { data } = await supabase
       .from("manuscript_backups")
       .select("id,created_at,title")
-      .eq("user_id", userId)
+      .eq("manuscript_id", manuscriptId)
       .order("created_at", { ascending: false });
     setSicherungen(data || []);
   }
@@ -434,6 +518,14 @@ export default function EditorClient({
         <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
           <button
             type="button"
+            onClick={() => setBibliothek(true)}
+            aria-label="Meine Romane"
+            className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim"
+          >
+            <Icon name="home" />
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setSidebar(true);
               sidebarOpenedAt.current = Date.now();
@@ -443,9 +535,17 @@ export default function EditorClient({
           >
             <Icon name="list" />
           </button>
-          <span className="font-serif text-lg tracking-tight text-ink">
+          <span className="hidden font-serif text-lg tracking-tight text-ink sm:inline">
             Novelista
           </span>
+          <span className="truncate font-serif text-ink-soft sm:border-l sm:border-line sm:pl-3" style={{ maxWidth: "40vw" }}>
+            {title}
+          </span>
+          {projektStatus === "fertig" && (
+            <span className="hidden rounded-full bg-paper-dim px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-soft sm:inline">
+              Abgeschlossen
+            </span>
+          )}
 
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden text-xs text-ink-faint sm:inline">
@@ -626,6 +726,61 @@ export default function EditorClient({
         <ExportDialog title={title} html={editor.getHTML()} onClose={() => setExportOffen(false)} />
       )}
 
+      {/* ---- Bibliothek (Projektverwaltung) ---- */}
+      {bibliothek && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/35 backdrop-blur-sm"
+          onClick={() => {
+            setBibliothek(false);
+            setProjektMenue(null);
+          }}
+        >
+          <aside
+            className="absolute left-0 top-0 flex h-full w-80 max-w-[85%] flex-col border-r border-line bg-paper shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 pb-3 pt-6">
+              <h2 className="font-serif text-2xl text-ink">Meine Romane</h2>
+              <p className="mt-1 text-sm text-ink-faint">
+                Wähle ein Projekt oder beginne ein neues.
+              </p>
+            </div>
+            <button
+              onClick={projektNeu}
+              className="mx-5 mb-2 flex items-center justify-center gap-2 rounded-xl bg-ink px-4 py-3 font-medium text-paper transition hover:bg-oxblood"
+            >
+              <Icon name="plus" /> Neues Projekt
+            </button>
+            <div className="flex-1 overflow-y-auto px-3 pb-6">
+              <ProjektAbschnitt
+                titel="Aktuelle Projekte"
+                projekte={projektListe.filter((p) => p.status !== "fertig")}
+                leer="Keine aktiven Projekte."
+                aktivId={manuscriptId}
+                menueId={projektMenue}
+                onWaehlen={projektWaehlen}
+                onMenue={(id) => setProjektMenue((m) => (m === id ? null : id))}
+                onUmbenennen={projektUmbenennen}
+                onStatus={(p) => projektStatusSetzen(p, "fertig")}
+                onLoeschen={projektLoeschen}
+              />
+              <ProjektAbschnitt
+                titel="Abgeschlossene Projekte"
+                projekte={projektListe.filter((p) => p.status === "fertig")}
+                leer="Noch nichts abgeschlossen."
+                aktivId={manuscriptId}
+                menueId={projektMenue}
+                onWaehlen={projektWaehlen}
+                onMenue={(id) => setProjektMenue((m) => (m === id ? null : id))}
+                onUmbenennen={projektUmbenennen}
+                onStatus={(p) => projektStatusSetzen(p, "aktiv")}
+                onLoeschen={projektLoeschen}
+              />
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* ---- Einstellungen ---- */}
       {einstellungenOffen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/30 px-6 backdrop-blur-sm" onClick={() => setEinstellungenOffen(false)}>
@@ -712,6 +867,90 @@ function statusText(s: SaveStatus) {
   return "gespeichert";
 }
 
+function ProjektAbschnitt({
+  titel,
+  projekte,
+  leer,
+  aktivId,
+  menueId,
+  onWaehlen,
+  onMenue,
+  onUmbenennen,
+  onStatus,
+  onLoeschen,
+}: {
+  titel: string;
+  projekte: ProjektInfo[];
+  leer: string;
+  aktivId: string;
+  menueId: string | null;
+  onWaehlen: (id: string) => void;
+  onMenue: (id: string) => void;
+  onUmbenennen: (p: ProjektInfo) => void;
+  onStatus: (p: ProjektInfo) => void;
+  onLoeschen: (p: ProjektInfo) => void;
+}) {
+  const fertig = titel.startsWith("Abge");
+  return (
+    <div className="mb-3">
+      <h3 className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+        {titel}
+      </h3>
+      {projekte.length === 0 ? (
+        <p className="px-3 py-1 text-sm text-ink-faint">{leer}</p>
+      ) : (
+        projekte.map((p) => (
+          <div key={p.id} className="relative">
+            <button
+              onClick={() => onWaehlen(p.id)}
+              className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
+                p.id === aktivId
+                  ? "border-line bg-paper-dim"
+                  : "border-transparent hover:bg-paper-dim"
+              }`}
+            >
+              <span
+                className={`block truncate pr-7 font-serif text-base ${
+                  p.id === aktivId
+                    ? "text-oxblood"
+                    : fertig
+                      ? "text-ink-faint"
+                      : "text-ink"
+                }`}
+              >
+                {p.title}
+              </span>
+              <span className="mt-0.5 block text-xs text-ink-faint">
+                {(p.word_count ?? 0).toLocaleString("de-DE")} Wörter
+              </span>
+            </button>
+            <button
+              onClick={() => onMenue(p.id)}
+              aria-label="Optionen"
+              className="absolute right-1.5 top-2 rounded-md p-1.5 text-ink-faint transition hover:bg-paper hover:text-ink"
+            >
+              <Icon name="dots" />
+            </button>
+            {menueId === p.id && (
+              <div className="absolute right-2 top-11 z-10 min-w-[190px] rounded-xl border border-line bg-paper p-1.5 shadow-xl">
+                <button onClick={() => onStatus(p)} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink-soft transition hover:bg-paper-dim hover:text-ink">
+                  {fertig ? "↺ Wieder aufnehmen" : "✓ Als abgeschlossen markieren"}
+                </button>
+                <button onClick={() => onUmbenennen(p)} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink-soft transition hover:bg-paper-dim hover:text-ink">
+                  ✎ Umbenennen
+                </button>
+                <button onClick={() => onLoeschen(p)} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink-soft transition hover:bg-paper-dim hover:text-oxblood">
+                  🗑 Löschen
+                </button>
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 function ToolButton({ children, onClick, active, disabled, label }: { children: React.ReactNode; onClick: () => void; active?: boolean; disabled?: boolean; label: string; }) {
   return (
     <button onClick={onClick} disabled={disabled} aria-label={label} title={label}
@@ -778,6 +1017,7 @@ function Icon({ name }: { name: string }) {
   const c = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
     case "list": return (<svg {...c}><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="14" y2="17" /></svg>);
+    case "home": return (<svg {...c}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h14V9.5" /><path d="M9.5 20v-6h5v6" /></svg>);
     case "mic": return (<svg {...c}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>);
     case "stop": return (<svg {...c}><rect x="6" y="6" width="12" height="12" rx="2" /></svg>);
     case "check": return (<svg {...c}><path d="M20 6 9 17l-5-5" /></svg>);
@@ -786,6 +1026,8 @@ function Icon({ name }: { name: string }) {
     case "center": return (<svg {...c}><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></svg>);
     case "quote": return (<svg {...c}><path d="M7 7h4v4c0 2-1 3-3 4M13 7h4v4c0 2-1 3-3 4" /></svg>);
     case "close": return (<svg {...c}><path d="M6 6l12 12M18 6L6 18" /></svg>);
+    case "plus": return (<svg {...c}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>);
+    case "dots": return (<svg {...c}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>);
     case "undo": return (<svg {...c}><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-4" /></svg>);
     case "redo": return (<svg {...c}><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4" /></svg>);
     case "search": return (<svg {...c}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>);

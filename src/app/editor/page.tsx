@@ -4,7 +4,11 @@ import EditorClient from "@/components/EditorClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditorPage() {
+export default async function EditorPage({
+  searchParams,
+}: {
+  searchParams: { p?: string };
+}) {
   const supabase = createClient();
   const {
     data: { user },
@@ -12,28 +16,46 @@ export default async function EditorPage() {
 
   if (!user) redirect("/login");
 
-  // Zentrales Manuskript laden – oder beim ersten Mal anlegen.
-  let { data: manuscript } = await supabase
+  // Alle Projekte dieser Person laden (ohne den großen Inhalt – nur Übersicht)
+  let { data: projekte } = await supabase
     .from("manuscripts")
-    .select("*")
+    .select("id,title,status,word_count,updated_at")
     .eq("user_id", user.id)
-    .maybeSingle();
+    .order("updated_at", { ascending: false });
 
-  if (!manuscript) {
+  // Beim allerersten Mal ein leeres Projekt anlegen
+  if (!projekte || projekte.length === 0) {
     const { data: created } = await supabase
       .from("manuscripts")
       .insert({ user_id: user.id })
-      .select("*")
+      .select("id,title,status,word_count,updated_at")
       .single();
-    manuscript = created;
+    projekte = created ? [created] : [];
   }
+
+  // Gewähltes Projekt bestimmen: aus der URL (?p=…), sonst das zuletzt bearbeitete
+  const gewuenscht = searchParams?.p;
+  const aktiv =
+    projekte.find((p) => p.id === gewuenscht) ??
+    projekte.find((p) => p.status === "aktiv") ??
+    projekte[0];
+
+  // Inhalt des gewählten Projekts laden
+  const { data: dok } = await supabase
+    .from("manuscripts")
+    .select("content,title,status")
+    .eq("id", aktiv.id)
+    .single();
 
   return (
     <EditorClient
-      initialContent={manuscript?.content ?? ""}
-      initialTitle={manuscript?.title ?? "Mein Roman"}
-      manuscriptId={manuscript?.id ?? ""}
+      key={aktiv.id}
+      initialContent={dok?.content ?? ""}
+      initialTitle={dok?.title ?? "Mein Roman"}
+      manuscriptId={aktiv.id}
       userId={user.id}
+      projektStatus={dok?.status ?? "aktiv"}
+      projekte={projekte}
     />
   );
 }
