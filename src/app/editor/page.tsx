@@ -33,6 +33,7 @@ export default async function EditorPage() {
       initialContent={manuscript?.content ?? ""}
       initialTitle={manuscript?.title ?? "Mein Roman"}
       manuscriptId={manuscript?.id ?? ""}
+      userId={user.id}
     />
   );
 }

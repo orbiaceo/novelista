@@ -16,6 +16,7 @@ interface Props {
   initialContent: string;
   initialTitle: string;
   manuscriptId: string;
+  userId: string;
 }
 
 interface Kapitel {
@@ -58,6 +59,7 @@ export default function EditorClient({
   initialContent,
   initialTitle,
   manuscriptId,
+  userId,
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -72,12 +74,57 @@ export default function EditorClient({
   const [kapitel, setKapitel] = useState<Kapitel[]>([]);
   const [woerter, setWoerter] = useState(0);
 
+  // Suchen & Ersetzen
+  const [suchenOffen, setSuchenOffen] = useState(false);
+  const [suchen, setSuchen] = useState("");
+  const [ersetzen, setErsetzen] = useState("");
+  const [treffer, setTreffer] = useState(0);
+
+  // Einstellungen (Dunkelmodus, Schriftgröße)
+  const [einstellungenOffen, setEinstellungenOffen] = useState(false);
+  const [dunkel, setDunkel] = useState(false);
+  const [schrift, setSchrift] = useState(1.15);
+
+  // Sicherungen
+  const [sicherungenOffen, setSicherungenOffen] = useState(false);
+  const [sicherungen, setSicherungen] = useState<
+    { id: string; created_at: string; title: string }[]
+  >([]);
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionRef = useRef<any>(null);
   const titleRef = useRef(initialTitle);
   const sidebarOpenedAt = useRef(0);
   const headerRef = useRef<HTMLElement>(null);
+  const letzteSicherung = useRef(0);
   const [headerH, setHeaderH] = useState(104);
+
+  // Einstellungen laden und anwenden
+  useEffect(() => {
+    try {
+      const d = localStorage.getItem("novelista_dunkel") === "1";
+      const s = parseFloat(localStorage.getItem("novelista_schrift") || "1.15");
+      setDunkel(d);
+      setSchrift(isNaN(s) ? 1.15 : s);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dunkel);
+    try {
+      localStorage.setItem("novelista_dunkel", dunkel ? "1" : "0");
+    } catch {}
+  }, [dunkel]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--manuscript-size",
+      `${schrift}rem`
+    );
+    try {
+      localStorage.setItem("novelista_schrift", String(schrift));
+    } catch {}
+  }, [schrift]);
 
   useEffect(() => {
     const messen = () => {
@@ -113,6 +160,46 @@ export default function EditorClient({
     setWoerter(zaehleWoerter(ed.getText()));
   }
 
+  // ---- Automatische Sicherung (höchstens 1× pro Tag, max. 10 Stände) ----
+  const sicherungVielleicht = useCallback(
+    async (html: string, neuerTitel: string) => {
+      if (!html.trim()) return;
+      const jetzt = Date.now();
+      // im Speicher: nicht öfter als alle 24 h
+      if (letzteSicherung.current && jetzt - letzteSicherung.current < 86400000) {
+        return;
+      }
+      // prüfen, ob heute schon eine Sicherung existiert
+      const heuteStart = new Date();
+      heuteStart.setHours(0, 0, 0, 0);
+      const { data: heutige } = await supabase
+        .from("manuscript_backups")
+        .select("id")
+        .eq("user_id", userId)
+        .gte("created_at", heuteStart.toISOString())
+        .limit(1);
+      if (heutige && heutige.length > 0) {
+        letzteSicherung.current = jetzt;
+        return;
+      }
+      await supabase
+        .from("manuscript_backups")
+        .insert({ user_id: userId, title: neuerTitel, content: html });
+      letzteSicherung.current = jetzt;
+      // alte Stände über 10 hinaus entfernen
+      const { data: alle } = await supabase
+        .from("manuscript_backups")
+        .select("id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (alle && alle.length > 10) {
+        const zuLoeschen = alle.slice(10).map((b: { id: string }) => b.id);
+        await supabase.from("manuscript_backups").delete().in("id", zuLoeschen);
+      }
+    },
+    [supabase, userId]
+  );
+
   // ---- Automatisches Speichern (entprellt) ----
   const speichern = useCallback(
     async (html: string, neuerTitel: string) => {
@@ -128,8 +215,9 @@ export default function EditorClient({
         })
         .eq("id", manuscriptId);
       setStatus(error ? "ungespeichert" : "gespeichert");
+      sicherungVielleicht(html, neuerTitel);
     },
-    [supabase, manuscriptId]
+    [supabase, manuscriptId, sicherungVielleicht]
   );
 
   const planeSpeichern = useCallback(
@@ -253,6 +341,84 @@ export default function EditorClient({
     }
   }
 
+  // ---- Suchen & Ersetzen ----
+  useEffect(() => {
+    if (!editor || !suchen) {
+      setTreffer(0);
+      return;
+    }
+    const t = editor.getText();
+    let n = 0;
+    let i = 0;
+    while ((i = t.indexOf(suchen, i)) !== -1) {
+      n++;
+      i += suchen.length;
+    }
+    setTreffer(n);
+  }, [suchen, editor, woerter]);
+
+  function alleErsetzen() {
+    if (!editor || !suchen) return;
+    const { state } = editor;
+    const matches: { from: number; to: number }[] = [];
+    state.doc.descendants((node, pos) => {
+      if (node.isText && node.text) {
+        const t = node.text;
+        let idx = 0;
+        while ((idx = t.indexOf(suchen, idx)) !== -1) {
+          const from = pos + idx;
+          matches.push({ from, to: from + suchen.length });
+          idx += suchen.length;
+        }
+      }
+      return true;
+    });
+    if (matches.length === 0) {
+      setHinweis("Nichts gefunden.");
+      setTimeout(() => setHinweis(null), 2000);
+      return;
+    }
+    let tr = state.tr;
+    for (let i = matches.length - 1; i >= 0; i--) {
+      tr = tr.insertText(ersetzen, matches[i].from, matches[i].to);
+    }
+    editor.view.dispatch(tr);
+    const anzahl = matches.length;
+    aktualisiere(editor);
+    planeSpeichern(editor.getHTML(), titleRef.current);
+    setHinweis(`${anzahl} ${anzahl === 1 ? "Stelle" : "Stellen"} ersetzt.`);
+    setTimeout(() => setHinweis(null), 2500);
+  }
+
+  // ---- Sicherungen ----
+  async function sicherungenOeffnen() {
+    setSicherungenOffen(true);
+    const { data } = await supabase
+      .from("manuscript_backups")
+      .select("id,created_at,title")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    setSicherungen(data || []);
+  }
+
+  async function sicherungWiederherstellen(id: string) {
+    const { data } = await supabase
+      .from("manuscript_backups")
+      .select("content,title")
+      .eq("id", id)
+      .single();
+    if (data && editor) {
+      editor.commands.setContent(data.content, false);
+      setTitle(data.title);
+      titleRef.current = data.title;
+      aktualisiere(editor);
+      planeSpeichern(editor.getHTML(), data.title);
+      setSicherungenOffen(false);
+      setHinweis("Frühere Fassung wiederhergestellt.");
+      setTimeout(() => setHinweis(null), 2500);
+    }
+  }
+
   if (!editor) {
     return (
       <div className="flex min-h-screen items-center justify-center text-ink-faint">
@@ -292,9 +458,18 @@ export default function EditorClient({
               <Icon name="check" />
               <span className="hidden sm:inline">{korrigiere ? "Lektoriere …" : "Korrigieren"}</span>
             </ToolButton>
+            <ToolButton onClick={() => setSuchenOffen((s) => !s)} active={suchenOffen} label="Suchen & Ersetzen">
+              <Icon name="search" />
+            </ToolButton>
             <ToolButton onClick={() => setExportOffen(true)} label="Als PDF">
               <Icon name="download" />
               <span className="hidden sm:inline">PDF</span>
+            </ToolButton>
+            <ToolButton onClick={sicherungenOeffnen} label="Frühere Fassungen">
+              <Icon name="history" />
+            </ToolButton>
+            <ToolButton onClick={() => setEinstellungenOffen(true)} label="Einstellungen">
+              <Icon name="gear" />
             </ToolButton>
             <button onClick={abmelden} className="rounded-lg p-2 text-ink-faint transition hover:bg-paper-dim hover:text-ink" aria-label="Abmelden">
               <Icon name="exit" />
@@ -304,6 +479,19 @@ export default function EditorClient({
 
         {/* ---- Formatierungsleiste ---- */}
         <div className="flex items-center gap-1 border-t border-line px-4 py-1.5 sm:px-6">
+          <FmtButton
+            onClick={() => editor.chain().focus().undo().run()}
+            label="Rückgängig"
+          >
+            <Icon name="undo" />
+          </FmtButton>
+          <FmtButton
+            onClick={() => editor.chain().focus().redo().run()}
+            label="Wiederherstellen"
+          >
+            <Icon name="redo" />
+          </FmtButton>
+          <div className="mx-1 h-5 w-px bg-line" />
           <FmtButton onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} label="Fett">
             <span className="font-bold">F</span>
           </FmtButton>
@@ -327,6 +515,37 @@ export default function EditorClient({
             <span className="text-sm font-medium">Kapitel</span>
           </FmtButton>
         </div>
+
+        {/* ---- Suchen & Ersetzen ---- */}
+        {suchenOffen && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2 sm:px-6">
+            <input
+              value={suchen}
+              onChange={(e) => setSuchen(e.target.value)}
+              placeholder="Suchen …"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-oxblood"
+            />
+            <input
+              value={ersetzen}
+              onChange={(e) => setErsetzen(e.target.value)}
+              placeholder="Ersetzen durch …"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-oxblood"
+            />
+            <span className="text-xs text-ink-faint">
+              {suchen ? `${treffer} gefunden` : ""}
+            </span>
+            <button
+              onClick={alleErsetzen}
+              disabled={!suchen || treffer === 0}
+              className="rounded-lg bg-ink px-3 py-2 text-sm font-medium text-paper transition hover:bg-oxblood disabled:opacity-50"
+            >
+              Alle ersetzen
+            </button>
+            <button onClick={() => setSuchenOffen(false)} aria-label="Schließen" className="rounded-lg p-2 text-ink-faint hover:bg-paper-dim">
+              <Icon name="close" />
+            </button>
+          </div>
+        )}
       </header>
 
       {/* ---- Schwebende Knöpfe bei Markierung ---- */}
@@ -405,6 +624,83 @@ export default function EditorClient({
 
       {exportOffen && (
         <ExportDialog title={title} html={editor.getHTML()} onClose={() => setExportOffen(false)} />
+      )}
+
+      {/* ---- Einstellungen ---- */}
+      {einstellungenOffen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/30 px-6 backdrop-blur-sm" onClick={() => setEinstellungenOffen(false)}>
+          <div className="rise w-full max-w-sm rounded-2xl border border-line bg-paper p-7 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-2xl text-ink">Einstellungen</h2>
+            <div className="mt-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-ink-soft">Dunkelmodus</span>
+                <button
+                  onClick={() => setDunkel((d) => !d)}
+                  className={`relative h-7 w-12 rounded-full transition ${dunkel ? "bg-oxblood" : "bg-line"}`}
+                  aria-label="Dunkelmodus umschalten"
+                >
+                  <span className={`absolute top-1 h-5 w-5 rounded-full bg-paper transition-all ${dunkel ? "left-6" : "left-1"}`} />
+                </button>
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm font-medium text-ink-soft">Schriftgröße</span>
+                  <span className="text-xs text-ink-faint">{Math.round(schrift * 100)} %</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.9}
+                  max={1.6}
+                  step={0.05}
+                  value={schrift}
+                  onChange={(e) => setSchrift(parseFloat(e.target.value))}
+                  className="w-full accent-oxblood"
+                />
+                <p className="mt-2 font-serif text-ink" style={{ fontSize: `${schrift}rem` }}>
+                  So sieht dein Text aus.
+                </p>
+              </div>
+            </div>
+            <button onClick={() => setEinstellungenOffen(false)} className="mt-8 w-full rounded-xl bg-ink px-4 py-3 font-medium text-paper transition hover:bg-oxblood">
+              Fertig
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Frühere Fassungen ---- */}
+      {sicherungenOffen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/30 px-6 backdrop-blur-sm" onClick={() => setSicherungenOffen(false)}>
+          <div className="rise w-full max-w-md rounded-2xl border border-line bg-paper p-7 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-2xl text-ink">Frühere Fassungen</h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Automatisch gespeicherte Stände der letzten Tage. Beim Wiederherstellen
+              wird dein aktueller Text ersetzt.
+            </p>
+            <div className="mt-5 max-h-80 space-y-2 overflow-y-auto">
+              {sicherungen.length === 0 ? (
+                <p className="text-sm text-ink-faint">Noch keine Sicherungen vorhanden. Sie entstehen automatisch, während du schreibst.</p>
+              ) : (
+                sicherungen.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2.5">
+                    <span className="text-sm text-ink">
+                      {new Date(s.created_at).toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" })}
+                    </span>
+                    <button
+                      onClick={() => sicherungWiederherstellen(s.id)}
+                      className="rounded-lg border border-line px-3 py-1.5 text-sm text-ink-soft transition hover:border-oxblood hover:text-oxblood"
+                    >
+                      Wiederherstellen
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <button onClick={() => setSicherungenOffen(false)} className="mt-6 w-full rounded-xl border border-line px-4 py-3 text-ink-soft transition hover:bg-paper-dim">
+              Schließen
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -490,6 +786,11 @@ function Icon({ name }: { name: string }) {
     case "center": return (<svg {...c}><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></svg>);
     case "quote": return (<svg {...c}><path d="M7 7h4v4c0 2-1 3-3 4M13 7h4v4c0 2-1 3-3 4" /></svg>);
     case "close": return (<svg {...c}><path d="M6 6l12 12M18 6L6 18" /></svg>);
+    case "undo": return (<svg {...c}><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-4" /></svg>);
+    case "redo": return (<svg {...c}><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4" /></svg>);
+    case "search": return (<svg {...c}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>);
+    case "gear": return (<svg {...c}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>);
+    case "history": return (<svg {...c}><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7v5l4 2" /></svg>);
     default: return null;
   }
 }

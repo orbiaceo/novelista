@@ -8,14 +8,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        paper: "#f7f3ec",
-        "paper-dim": "#efe9df",
-        ink: "#1f1b16",
-        "ink-soft": "#4a443c",
-        "ink-faint": "#8a8276",
-        oxblood: "#7a2b27",
-        "oxblood-dim": "#9a3b36",
-        line: "#e2dacd",
+        paper: "rgb(var(--paper) / <alpha-value>)",
+        "paper-dim": "rgb(var(--paper-dim) / <alpha-value>)",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        "ink-soft": "rgb(var(--ink-soft) / <alpha-value>)",
+        "ink-faint": "rgb(var(--ink-faint) / <alpha-value>)",
+        oxblood: "rgb(var(--oxblood) / <alpha-value>)",
+        "oxblood-dim": "rgb(var(--oxblood-dim) / <alpha-value>)",
+        line: "rgb(var(--line) / <alpha-value>)",
+        surface: "var(--surface)",
       },
       fontFamily: {
         serif: ["var(--font-serif)", "Georgia", "serif"],

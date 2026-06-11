@@ -5,6 +5,33 @@
 :root {
   --font-serif: "Spectral", Georgia, "Times New Roman", serif;
   --font-sans: "Inter Tight", system-ui, sans-serif;
+
+  /* Helles Thema (RGB-Kanäle für Transparenz) */
+  --paper: 247 243 236;
+  --paper-dim: 239 233 223;
+  --ink: 31 27 22;
+  --ink-soft: 74 68 60;
+  --ink-faint: 138 130 118;
+  --oxblood: 122 43 39;
+  --oxblood-dim: 154 59 54;
+  --line: 226 218 205;
+  --surface: rgba(255, 255, 255, 0.7);
+
+  /* Schriftgröße der Schreibfläche (vom Leser einstellbar) */
+  --manuscript-size: 1.15rem;
+}
+
+.dark {
+  /* Dunkles Thema – warm, augenschonend */
+  --paper: 28 26 23;
+  --paper-dim: 38 35 32;
+  --ink: 236 230 218;
+  --ink-soft: 184 177 163;
+  --ink-faint: 131 124 112;
+  --oxblood: 201 123 111;
+  --oxblood-dim: 181 104 93;
+  --line: 56 52 48;
+  --surface: rgba(255, 255, 255, 0.05);
 }
 
 html,
@@ -25,6 +52,7 @@ body {
 /* Schreibfläche: keine Ränder, kein UI-Gefühl */
 .manuscript-area {
   font-family: var(--font-serif);
+  font-size: var(--manuscript-size);
   line-height: 1.85;
   letter-spacing: 0.005em;
   caret-color: theme("colors.oxblood");

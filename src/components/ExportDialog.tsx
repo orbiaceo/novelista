@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { PdfFont } from "@/lib/pdf";
+import type { PdfFont, SatzArt } from "@/lib/pdf";
 
 interface Props {
   title: string;
@@ -22,6 +22,7 @@ export default function ExportDialog({ title, html, onClose }: Props) {
   const [margin, setMargin] = useState(2.0);
   const [fontSize, setFontSize] = useState(11);
   const [font, setFont] = useState<PdfFont>("Serif");
+  const [satz, setSatz] = useState<SatzArt>("flatter");
   const [busy, setBusy] = useState(false);
 
   async function exportieren() {
@@ -36,6 +37,7 @@ export default function ExportDialog({ title, html, onClose }: Props) {
         marginCm: margin,
         fontSizePt: fontSize,
         font,
+        satz,
       });
       onClose();
     } finally {
@@ -63,12 +65,42 @@ export default function ExportDialog({ title, html, onClose }: Props) {
             <select
               value={format}
               onChange={(e) => setFormat(e.target.value)}
-              className="w-full rounded-lg border border-line bg-white/70 px-3 py-2.5 text-ink outline-none focus:border-oxblood"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-oxblood"
             >
               {Object.keys(FORMATE).map((k) => (
                 <option key={k}>{k}</option>
               ))}
             </select>
+          </Feld>
+
+          <Feld label="Satz">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSatz("flatter")}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${
+                  satz === "flatter"
+                    ? "border-oxblood bg-oxblood text-paper"
+                    : "border-line bg-surface text-ink-soft hover:border-ink-faint"
+                }`}
+              >
+                Flattersatz
+              </button>
+              <button
+                onClick={() => setSatz("buch")}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${
+                  satz === "buch"
+                    ? "border-oxblood bg-oxblood text-paper"
+                    : "border-line bg-surface text-ink-soft hover:border-ink-faint"
+                }`}
+              >
+                Buchsatz
+              </button>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+              {satz === "flatter"
+                ? "Linksbündig, ohne große Lücken – ideal zum Einreichen bei Agenturen und Verlagen."
+                : "Blocksatz mit deutscher Silbentrennung – sieht aus wie ein gedrucktes Buch (fürs Self-Publishing)."}
+            </p>
           </Feld>
 
           <Feld label="Schriftart">
@@ -80,7 +112,7 @@ export default function ExportDialog({ title, html, onClose }: Props) {
                   className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${
                     font === f
                       ? "border-oxblood bg-oxblood text-paper"
-                      : "border-line bg-white/70 text-ink-soft hover:border-ink-faint"
+                      : "border-line bg-surface text-ink-soft hover:border-ink-faint"
                   }`}
                 >
                   {f}
