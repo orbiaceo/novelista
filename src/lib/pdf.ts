@@ -1,6 +1,8 @@
 import { jsPDF } from "jspdf";
+import { hyphenateSync } from "hyphen/de-1996";
 
 export type PdfFont = "Serif" | "Sans" | "Schreibmaschine";
+export type SatzArt = "flatter" | "buch";
 
 export interface PdfOptions {
   title: string;
@@ -9,6 +11,7 @@ export interface PdfOptions {
   marginCm: number;
   fontSizePt: number;
   font: PdfFont;
+  satz: SatzArt; // "flatter" = linksbündig (Einreichung), "buch" = Blocksatz + Silbentrennung
 }
 
 const FONT_MAP: Record<PdfFont, string> = {
@@ -24,10 +27,28 @@ interface Style {
   italic: boolean;
 }
 type Token = { text: string; style: Style } | { br: true };
+type Ausrichtung = "left" | "center" | "justify";
+
+// ---- Deutsche Silbentrennung (zwischengespeichert) ----
+const trennCache = new Map<string, string[]>();
+function trenne(word: string): string[] {
+  const c = trennCache.get(word);
+  if (c) return c;
+  let res: string[];
+  try {
+    res = hyphenateSync(word).split("\u00AD");
+  } catch {
+    res = [word];
+  }
+  trennCache.set(word, res);
+  return res;
+}
 
 /**
  * Erzeugt ein druckfertiges Buch-PDF aus dem formatierten Manuskript (HTML).
- * Unterstützt Fett, Kursiv, Zentriert, Blockzitate und Kapitel (Überschriften).
+ * Unterstützt Fett, Kursiv, Zentriert, Blockzitate, Kapitel (Überschriften)
+ * sowie zwei Satzarten: Flattersatz (linksbündig) und Buchsatz (Blocksatz
+ * mit deutscher Silbentrennung).
  */
 export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   const w = opts.widthCm * CM_TO_PT;
@@ -36,9 +57,9 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   const fontName = FONT_MAP[opts.font];
   const baseSize = opts.fontSizePt;
   const lineHeight = baseSize * 1.6;
-  const textWidth = w - margin * 2;
   const bottom = h - margin;
   const quoteIndent = 0.9 * CM_TO_PT;
+  const buch = opts.satz === "buch";
 
   const doc = new jsPDF({ unit: "pt", format: [w, h] });
 
@@ -118,13 +139,15 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
 
   const absatzRendern = (
     tokens: Token[],
-    align: "left" | "center" | "justify",
+    align: Ausrichtung,
     leftX: number,
     rightX: number,
-    size: number
+    size: number,
+    silbentrennung: boolean
   ) => {
     const maxW = rightX - leftX;
-    const spaceW = wordWidth(" ", { bold: false, italic: false }, size) || size * 0.3;
+    const spaceW =
+      wordWidth(" ", { bold: false, italic: false }, size) || size * 0.3;
 
     let line: { text: string; style: Style; width: number }[] = [];
     let lineW = 0;
@@ -142,6 +165,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
       if (align === "center") {
         x = leftX + (maxW - (wordsW + (n - 1) * spaceW)) / 2;
       } else if (align === "justify" && !isLast && n > 1) {
+        // Blocksatz: Restbreite gleichmäßig auf die Wortzwischenräume verteilen
         gap = spaceW + (maxW - wordsW - (n - 1) * spaceW) / (n - 1);
       }
       for (const word of line) {
@@ -154,29 +178,69 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
       lineW = 0;
     };
 
-    for (const tok of tokens) {
+    let i = 0;
+    while (i < tokens.length) {
+      const tok = tokens[i];
       if ("br" in tok) {
         flush(true);
+        i++;
         continue;
       }
       const ww = wordWidth(tok.text, tok.style, size);
-      const need = (line.length ? spaceW : 0) + ww;
-      if (lineW + need > maxW && line.length > 0) flush(false);
+      const sp = line.length ? spaceW : 0;
+
+      if (lineW + sp + ww <= maxW) {
+        line.push({ text: tok.text, style: tok.style, width: ww });
+        lineW += sp + ww;
+        i++;
+        continue;
+      }
+
+      // Passt nicht -> ggf. Silbentrennung versuchen
+      if (silbentrennung && tok.text.length >= 6) {
+        const parts = trenne(tok.text);
+        if (parts.length > 1) {
+          const avail = maxW - lineW - sp;
+          let best = "";
+          let acc = "";
+          for (let s = 0; s < parts.length - 1; s++) {
+            acc += parts[s];
+            const rest = parts.slice(s + 1).join("");
+            if (acc.length < 2 || rest.length < 2) continue;
+            const cand = acc + "-";
+            if (wordWidth(cand, tok.style, size) <= avail) best = cand;
+            else break;
+          }
+          if (best) {
+            const bw = wordWidth(best, tok.style, size);
+            line.push({ text: best, style: tok.style, width: bw });
+            lineW += sp + bw;
+            const restText = tok.text.slice(best.length - 1); // "-" abziehen
+            tokens.splice(i + 1, 0, { text: restText, style: tok.style });
+            flush(false);
+            i++;
+            continue;
+          }
+        }
+      }
+
+      // Keine Trennung -> Zeilenumbruch; Wort auf neuer Zeile erneut versuchen
+      if (line.length > 0) {
+        flush(false);
+        continue;
+      }
+
+      // Zeile leer und Wort breiter als die Zeile: trotzdem setzen (Endlosschleife vermeiden)
       line.push({ text: tok.text, style: tok.style, width: ww });
-      lineW += (line.length > 1 ? spaceW : 0) + ww;
+      lineW += ww;
+      i++;
     }
     flush(true);
   };
 
-  const ausrichtung = (el: HTMLElement): "left" | "center" | "justify" => {
-    const ta = (el.style.textAlign || "").toLowerCase();
-    if (ta === "center") return "center";
-    if (ta === "right") return "left";
-    return "justify";
-  };
-
   for (const el of bloecke) {
     const tag = el.tagName.toLowerCase();
+    const zentriert = (el.style.textAlign || "").toLowerCase() === "center";
 
     // ---- Kapitel (Überschrift): neue Seite, zentriert, größer ----
     if (/^h[1-6]$/.test(tag)) {
@@ -184,9 +248,9 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
       doc.setTextColor(20);
       const tokens: Token[] = [];
       tokensSammeln(el, true, false, tokens);
-      y += lineHeight; // etwas Luft oben
-      absatzRendern(tokens, "center", margin, w - margin, baseSize + 6);
-      y += lineHeight; // Luft nach der Überschrift
+      y += lineHeight;
+      absatzRendern(tokens, "center", margin, w - margin, baseSize + 6, false);
+      y += lineHeight;
       continue;
     }
 
@@ -199,8 +263,15 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
       const ziele = innerP.length ? innerP : [el];
       for (const p of ziele) {
         const tokens: Token[] = [];
-        tokensSammeln(p, false, true, tokens); // Zitate kursiv setzen
-        absatzRendern(tokens, "left", margin + quoteIndent, w - margin - quoteIndent, baseSize);
+        tokensSammeln(p, false, true, tokens);
+        absatzRendern(
+          tokens,
+          buch ? "justify" : "left",
+          margin + quoteIndent,
+          w - margin - quoteIndent,
+          baseSize,
+          buch
+        );
         y += lineHeight * 0.3;
       }
       y += lineHeight * 0.4;
@@ -212,10 +283,11 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     const tokens: Token[] = [];
     tokensSammeln(el, false, false, tokens);
     if (tokens.length === 0) {
-      y += lineHeight * 0.6; // leerer Absatz
+      y += lineHeight * 0.6;
       continue;
     }
-    absatzRendern(tokens, ausrichtung(el), margin, w - margin, baseSize);
+    const align: Ausrichtung = zentriert ? "center" : buch ? "justify" : "left";
+    absatzRendern(tokens, align, margin, w - margin, baseSize, buch);
     y += lineHeight * 0.35;
   }
 

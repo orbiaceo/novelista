@@ -16,6 +16,7 @@
     "@tiptap/pm": "^2.27.2",
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
+    "hyphen": "^1.14.1",
     "jspdf": "^2.5.2",
     "next": "^14.2.35",
     "openai": "^4.67.3",

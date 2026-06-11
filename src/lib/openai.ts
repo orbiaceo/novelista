@@ -1,6 +1,14 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Der Client wird erst beim ersten Aufruf erzeugt, nicht schon beim Laden
+// der Datei. So braucht der Build (next build) keinen API-Schlüssel.
+let _client: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _client;
+}
 
 /**
  * Systemanweisung – die App verhält sich wie ein professioneller Lektor.
@@ -38,7 +46,7 @@ ohne Erklärungen, ohne Kommentare. Nur das HTML.`;
 export async function lektoriereHtml(html: string): Promise<string> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getClient().chat.completions.create({
     model,
     temperature: 0,
     messages: [
