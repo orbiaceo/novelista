@@ -60,3 +60,38 @@ export async function lektoriereHtml(html: string): Promise<string> {
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
   return out || html;
 }
+
+/**
+ * Systemanweisung für „Schöner schreiben" – formuliert eleganter,
+ * ohne Sinn oder Formatierung zu verändern.
+ */
+const STIL_SYSTEM_PROMPT = `Du bist ein erfahrener deutscher Literaturlektor.
+
+Der Text wird dir als HTML übergeben (Tags wie <p>, <em>, <strong>, <blockquote>, <h1>, <br>).
+
+DEINE AUFGABE: Formuliere den Text sprachlich schöner und eleganter – flüssigere Sätze, treffendere Wörter, besserer Rhythmus – OHNE die Bedeutung, die Aussage oder die Handlung zu verändern. Behalte die Stimme und den Ton der Autorin bei; mache den Text nicht künstlicher oder geschwollener, sondern natürlicher und klarer.
+
+REGELN:
+- Verändere niemals den Inhalt oder die Bedeutung.
+- Behalte ALLE HTML-Tags exakt bei (öffnend und schließend, gleiche Stellen). Korrigiere/verbessere nur den Text ZWISCHEN den Tags.
+- Verwende deutsche Anführungszeichen („…").
+- Erfinde nichts dazu, kürze keine Inhalte weg.
+
+AUSGABE: Gib AUSSCHLIESSLICH das überarbeitete HTML zurück – ohne Markdown, ohne Erklärungen.`;
+
+export async function stilVerbessernHtml(html: string): Promise<string> {
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+  const completion = await getClient().chat.completions.create({
+    model,
+    temperature: 0.6,
+    messages: [
+      { role: "system", content: STIL_SYSTEM_PROMPT },
+      { role: "user", content: html },
+    ],
+  });
+
+  let out = completion.choices[0]?.message?.content?.trim() ?? html;
+  out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  return out || html;
+}

@@ -79,6 +79,7 @@ export default function EditorClient({
   const [title, setTitle] = useState(initialTitle);
   const [status, setStatus] = useState<SaveStatus>("gespeichert");
   const [korrigiere, setKorrigiere] = useState(false);
+  const [verbessere, setVerbessere] = useState(false);
   const [diktiere, setDiktiere] = useState(false);
   const [sidebar, setSidebar] = useState(false);
 
@@ -259,35 +260,123 @@ export default function EditorClient({
   }
 
   // ---- Lektorat per Knopfdruck (erhält die Formatierung) ----
-  async function korrigierenLassen() {
-    if (korrigiere || !editor) return;
-
+  // Zielbereich: markierte Auswahl, sonst der zuletzt geschriebene Absatz
+  function zielBereich(): { from: number; to: number } | null {
+    if (!editor) return null;
     const { state } = editor;
     const { from, to, empty } = state.selection;
+    if (!empty && from !== to) return { from, to };
+    // letzter nicht-leerer Textblock
+    let ziel: { from: number; to: number } | null = null;
+    state.doc.descendants((node, pos) => {
+      if (node.isTextblock && node.textContent.trim()) {
+        ziel = { from: pos + 1, to: pos + node.nodeSize - 1 };
+      }
+      return true;
+    });
+    return ziel;
+  }
 
-    // Nichts markiert -> freundlich auffordern (kein Timeout bei langen Texten)
-    if (empty || from === to) {
-      setHinweis("Markiere zuerst den Text, den du korrigieren möchtest.");
-      setTimeout(() => setHinweis(null), 3500);
+  // Plain-Text eines Bereichs samt Positions-Zuordnung (für LanguageTool)
+  function textMitPositionen(from: number, to: number) {
+    if (!editor) return { text: "", map: [] as number[] };
+    const doc = editor.state.doc;
+    let text = "";
+    const map: number[] = [];
+    doc.nodesBetween(from, to, (node, pos) => {
+      if (node.isText) {
+        const start = Math.max(from, pos);
+        const end = Math.min(to, pos + node.nodeSize);
+        for (let p = start; p < end; p++) {
+          text += doc.textBetween(p, p + 1);
+          map.push(p);
+        }
+      }
+      return true;
+    });
+    return { text, map };
+  }
+
+  // ---- Knopf 1: Korrigieren (LanguageTool, gratis) ----
+  async function korrigierenLassen() {
+    if (korrigiere || verbessere || !editor) return;
+    const bereich = zielBereich();
+    if (!bereich) {
+      setHinweis("Schreibe zuerst etwas, das ich prüfen kann.");
+      setTimeout(() => setHinweis(null), 3000);
       return;
     }
+    const { text, map } = textMitPositionen(bereich.from, bereich.to);
+    if (!text.trim()) return;
 
-    // Markierten Bereich als HTML herauslösen (mit Formatierung)
-    const slice = state.doc.slice(from, to);
-    const serializer = DOMSerializer.fromSchema(state.schema);
+    setKorrigiere(true);
+    setHinweis("Wird geprüft …");
+    try {
+      const res = await fetch("/api/languagetool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Fehler");
+
+      const matches: { offset: number; length: number; replacement: string }[] =
+        data.matches || [];
+      if (matches.length === 0) {
+        setHinweis("Keine Fehler gefunden ✓");
+        setTimeout(() => setHinweis(null), 2500);
+        return;
+      }
+
+      // Von hinten nach vorne ersetzen, damit die Positionen gültig bleiben
+      matches.sort((a, b) => b.offset - a.offset);
+      let tr = editor.state.tr;
+      let anzahl = 0;
+      for (const m of matches) {
+        const startPos = map[m.offset];
+        const endPos = map[m.offset + m.length - 1];
+        if (startPos == null || endPos == null) continue;
+        tr = tr.insertText(m.replacement, startPos, endPos + 1);
+        anzahl++;
+      }
+      editor.view.dispatch(tr);
+      aktualisiere(editor);
+      planeSpeichern(editor.getHTML(), titleRef.current);
+      setHinweis(
+        `${anzahl} ${anzahl === 1 ? "Korrektur" : "Korrekturen"} übernommen (LanguageTool)`
+      );
+    } catch {
+      setHinweis("Die Prüfung ist gerade nicht verfügbar.");
+    } finally {
+      setKorrigiere(false);
+      setTimeout(() => setHinweis(null), 2800);
+    }
+  }
+
+  // ---- Knopf 2: Schöner schreiben (OpenAI) ----
+  async function schoenerSchreiben() {
+    if (korrigiere || verbessere || !editor) return;
+    const bereich = zielBereich();
+    if (!bereich) {
+      setHinweis("Schreibe zuerst etwas, das ich überarbeiten kann.");
+      setTimeout(() => setHinweis(null), 3000);
+      return;
+    }
+    const { from, to } = bereich;
+    const slice = editor.state.doc.slice(from, to);
+    const serializer = DOMSerializer.fromSchema(editor.state.schema);
     const container = document.createElement("div");
     container.appendChild(serializer.serializeFragment(slice.content));
     const html = container.innerHTML;
-
     if (!container.textContent?.trim()) return;
 
-    setKorrigiere(true);
-    setHinweis("Markierung wird lektoriert …");
+    setVerbessere(true);
+    setHinweis("Wird überarbeitet …");
     try {
       const res = await fetch("/api/correct", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ html }),
+        body: JSON.stringify({ html, modus: "stil" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Fehler");
@@ -295,17 +384,33 @@ export default function EditorClient({
       editor
         .chain()
         .focus()
-        .deleteSelection()
-        .insertContent(data.corrected)
+        .insertContentAt({ from, to }, data.corrected)
         .run();
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
-      setHinweis("Lektorat abgeschlossen.");
+      setHinweis("Überarbeitet ✨");
     } catch {
-      setHinweis("Die Korrektur ist gerade nicht verfügbar.");
+      setHinweis("Das Überarbeiten ist gerade nicht verfügbar.");
     } finally {
-      setKorrigiere(false);
+      setVerbessere(false);
       setTimeout(() => setHinweis(null), 2500);
+    }
+  }
+
+  // Deutsche Anführungszeichen „…" um die Auswahl (für Dialoge)
+  function deutscheAnfuehrung() {
+    if (!editor) return;
+    const { from, to, empty } = editor.state.selection;
+    if (!empty && from !== to) {
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(to, "\u201C")
+        .insertContentAt(from, "\u201E")
+        .run();
+    } else {
+      editor.chain().focus().insertContent("\u201E\u201C").run();
+      editor.commands.setTextSelection(editor.state.selection.from - 1);
     }
   }
 
@@ -554,9 +659,13 @@ export default function EditorClient({
             <ToolButton onClick={diktatUmschalten} active={diktiere} label={diktiere ? "Diktat beenden" : "Diktieren"}>
               <Icon name={diktiere ? "stop" : "mic"} />
             </ToolButton>
-            <ToolButton onClick={korrigierenLassen} active={korrigiere} label="Korrigieren" disabled={korrigiere}>
+            <ToolButton onClick={korrigierenLassen} active={korrigiere} label="Korrigieren (Rechtschreibung & Grammatik, gratis)" disabled={korrigiere || verbessere}>
               <Icon name="check" />
-              <span className="hidden sm:inline">{korrigiere ? "Lektoriere …" : "Korrigieren"}</span>
+              <span className="hidden sm:inline">{korrigiere ? "Prüfe …" : "Korrigieren"}</span>
+            </ToolButton>
+            <ToolButton onClick={schoenerSchreiben} active={verbessere} label="Schöner schreiben (mit KI)" disabled={korrigiere || verbessere}>
+              <Icon name="sparkle" />
+              <span className="hidden sm:inline">{verbessere ? "Überarbeite …" : "Schöner"}</span>
             </ToolButton>
             <ToolButton onClick={() => setSuchenOffen((s) => !s)} active={suchenOffen} label="Suchen & Ersetzen">
               <Icon name="search" />
@@ -609,6 +718,9 @@ export default function EditorClient({
           </FmtButton>
           <FmtButton onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} label="Zitat">
             <Icon name="quote" />
+          </FmtButton>
+          <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen „…“ (für Dialoge)">
+            <span className="font-serif text-base leading-none">„“</span>
           </FmtButton>
           <div className="mx-1 h-5 w-px bg-line" />
           <FmtButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive("heading", { level: 1 })} label="Als Kapitel markieren">
@@ -666,9 +778,15 @@ export default function EditorClient({
         <FmtButton onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} label="Zitat">
           <Icon name="quote" />
         </FmtButton>
+        <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen">
+          <span className="font-serif text-base leading-none">„“</span>
+        </FmtButton>
         <div className="mx-0.5 h-5 w-px bg-line" />
-        <FmtButton onClick={korrigierenLassen} label="Markierung korrigieren">
+        <FmtButton onClick={korrigierenLassen} label="Auswahl korrigieren">
           <Icon name="check" />
+        </FmtButton>
+        <FmtButton onClick={schoenerSchreiben} label="Auswahl schöner schreiben">
+          <Icon name="sparkle" />
         </FmtButton>
       </BubbleMenu>
 
@@ -819,6 +937,12 @@ export default function EditorClient({
             <button onClick={() => setEinstellungenOffen(false)} className="mt-8 w-full rounded-xl bg-ink px-4 py-3 font-medium text-paper transition hover:bg-oxblood">
               Fertig
             </button>
+            <p className="mt-4 text-center text-xs text-ink-faint">
+              Rechtschreibprüfung mit{" "}
+              <a href="https://languagetool.org" target="_blank" rel="noopener noreferrer" className="underline hover:text-oxblood">
+                LanguageTool
+              </a>
+            </p>
           </div>
         </div>
       )}
@@ -1028,6 +1152,7 @@ function Icon({ name }: { name: string }) {
     case "close": return (<svg {...c}><path d="M6 6l12 12M18 6L6 18" /></svg>);
     case "plus": return (<svg {...c}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>);
     case "dots": return (<svg {...c}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>);
+    case "sparkle": return (<svg {...c}><path d="m12 3 2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z" /></svg>);
     case "undo": return (<svg {...c}><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-4" /></svg>);
     case "redo": return (<svg {...c}><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4" /></svg>);
     case "search": return (<svg {...c}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>);
