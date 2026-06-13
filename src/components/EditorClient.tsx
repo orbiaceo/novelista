@@ -278,78 +278,43 @@ export default function EditorClient({
   }
 
   // Plain-Text eines Bereichs samt Positions-Zuordnung (für LanguageTool)
-  function textMitPositionen(from: number, to: number) {
-    if (!editor) return { text: "", map: [] as number[] };
-    const doc = editor.state.doc;
-    let text = "";
-    const map: number[] = [];
-    doc.nodesBetween(from, to, (node, pos) => {
-      if (node.isText) {
-        const start = Math.max(from, pos);
-        const end = Math.min(to, pos + node.nodeSize);
-        for (let p = start; p < end; p++) {
-          text += doc.textBetween(p, p + 1);
-          map.push(p);
-        }
-      }
-      return true;
-    });
-    return { text, map };
-  }
-
-  // ---- Knopf 1: Korrigieren (LanguageTool, gratis) ----
+  // ---- Knopf 1: Korrigieren (KI – Fehler, ohne den Stil zu verändern) ----
   async function korrigierenLassen() {
     if (korrigiere || verbessere || !editor) return;
     const bereich = zielBereich();
     if (!bereich) {
-      setHinweis("Schreibe zuerst etwas, das ich prüfen kann.");
+      setHinweis("Schreibe zuerst etwas, das ich korrigieren kann.");
       setTimeout(() => setHinweis(null), 3000);
       return;
     }
-    const { text, map } = textMitPositionen(bereich.from, bereich.to);
-    if (!text.trim()) return;
+    const { from, to } = bereich;
+    const slice = editor.state.doc.slice(from, to);
+    const serializer = DOMSerializer.fromSchema(editor.state.schema);
+    const container = document.createElement("div");
+    container.appendChild(serializer.serializeFragment(slice.content));
+    const html = container.innerHTML;
+    if (!container.textContent?.trim()) return;
 
     setKorrigiere(true);
-    setHinweis("Wird geprüft …");
+    setHinweis("Wird korrigiert …");
     try {
-      const res = await fetch("/api/languagetool", {
+      const res = await fetch("/api/correct", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ html, modus: "lektorat" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Fehler");
 
-      const matches: { offset: number; length: number; replacement: string }[] =
-        data.matches || [];
-      if (matches.length === 0) {
-        setHinweis("Keine Fehler gefunden ✓");
-        setTimeout(() => setHinweis(null), 2500);
-        return;
-      }
-
-      // Von hinten nach vorne ersetzen, damit die Positionen gültig bleiben
-      matches.sort((a, b) => b.offset - a.offset);
-      let tr = editor.state.tr;
-      let anzahl = 0;
-      for (const m of matches) {
-        const startPos = map[m.offset];
-        const endPos = map[m.offset + m.length - 1];
-        if (startPos == null || endPos == null) continue;
-        tr = tr.insertText(m.replacement, startPos, endPos + 1);
-        anzahl++;
-      }
-      editor.view.dispatch(tr);
+      editor.chain().focus().insertContentAt({ from, to }, data.corrected).run();
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
-      setHinweis(
-        `${anzahl} ${anzahl === 1 ? "Korrektur" : "Korrekturen"} übernommen (LanguageTool)`
-      );
+      setHinweis("Korrigiert ✓");
     } catch {
-      setHinweis("Die Prüfung ist gerade nicht verfügbar.");
+      setHinweis("Die Korrektur ist gerade nicht verfügbar.");
     } finally {
       setKorrigiere(false);
-      setTimeout(() => setHinweis(null), 2800);
+      setTimeout(() => setHinweis(null), 2500);
     }
   }
 
@@ -937,12 +902,6 @@ export default function EditorClient({
             <button onClick={() => setEinstellungenOffen(false)} className="mt-8 w-full rounded-xl bg-ink px-4 py-3 font-medium text-paper transition hover:bg-oxblood">
               Fertig
             </button>
-            <p className="mt-4 text-center text-xs text-ink-faint">
-              Rechtschreibprüfung mit{" "}
-              <a href="https://languagetool.org" target="_blank" rel="noopener noreferrer" className="underline hover:text-oxblood">
-                LanguageTool
-              </a>
-            </p>
           </div>
         </div>
       )}
