@@ -87,6 +87,8 @@ export default function EditorClient({
   const [bibliothek, setBibliothek] = useState(false);
   const [projektListe, setProjektListe] = useState<ProjektInfo[]>(projekte);
   const [projektMenue, setProjektMenue] = useState<string | null>(null);
+  const [importiere, setImportiere] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
   const [exportOffen, setExportOffen] = useState(false);
   const [hinweis, setHinweis] = useState<string | null>(null);
   const [kapitel, setKapitel] = useState<Kapitel[]>([]);
@@ -438,6 +440,55 @@ export default function EditorClient({
       .select("id")
       .single();
     if (data?.id) router.push("/editor?p=" + data.id);
+  }
+
+  // Word-Dokument (.docx) als neues Projekt importieren – inkl. Kapitel
+  async function dateiImportieren(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // erlaubt, dieselbe Datei erneut zu wählen
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      setHinweis(
+        "Bitte eine Word-Datei (.docx) wählen. Google Docs und OpenOffice können als .docx speichern."
+      );
+      setTimeout(() => setHinweis(null), 6000);
+      return;
+    }
+    setImportiere(true);
+    setHinweis("Dokument wird importiert …");
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const mod = await import("mammoth/mammoth.browser");
+      const mammoth = mod.default ?? mod;
+      const styleMap = [
+        "p[style-name='Heading 1'] => h1:fresh",
+        "p[style-name='Überschrift 1'] => h1:fresh",
+        "p[style-name='heading 1'] => h1:fresh",
+        "p[style-name='Title'] => h1:fresh",
+        "p[style-name='Titel'] => h1:fresh",
+      ];
+      const result = await mammoth.convertToHtml({ arrayBuffer }, { styleMap });
+      const html = result.value || "";
+      if (!html.trim()) {
+        setHinweis("Das Dokument scheint leer zu sein.");
+        setTimeout(() => setHinweis(null), 5000);
+        return;
+      }
+      const titel =
+        file.name.replace(/\.docx$/i, "").trim() || "Importiertes Dokument";
+      const { data, error } = await supabase
+        .from("manuscripts")
+        .insert({ user_id: userId, title: titel, content: html })
+        .select("id")
+        .single();
+      if (error || !data?.id) throw new Error("Speichern fehlgeschlagen");
+      router.push("/editor?p=" + data.id);
+    } catch {
+      setHinweis("Der Import hat nicht geklappt. Ist es eine gültige .docx-Datei?");
+      setTimeout(() => setHinweis(null), 6000);
+    } finally {
+      setImportiere(false);
+    }
   }
 
   async function projektUmbenennen(p: ProjektInfo) {
@@ -839,6 +890,20 @@ export default function EditorClient({
             >
               <Icon name="plus" /> Neues Projekt
             </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".docx"
+              onChange={dateiImportieren}
+              className="hidden"
+            />
+            <button
+              onClick={() => importRef.current?.click()}
+              disabled={importiere}
+              className="mx-5 mb-1 flex items-center justify-center gap-2 rounded-xl border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition hover:border-oxblood hover:text-oxblood disabled:opacity-50"
+            >
+              <Icon name="upload" /> {importiere ? "Importiere …" : "Dokument importieren (.docx)"}
+            </button>
             <div className="flex-1 overflow-y-auto px-3 pb-6">
               <ProjektAbschnitt
                 titel="Aktuelle Projekte"
@@ -1125,6 +1190,7 @@ function Icon({ name }: { name: string }) {
     case "plus": return (<svg {...c}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>);
     case "dots": return (<svg {...c}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg>);
     case "sparkle": return (<svg {...c}><path d="m12 3 2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z" /></svg>);
+    case "upload": return (<svg {...c}><path d="M12 16V4M7 9l5-5 5 5M5 20h14" /></svg>);
     case "undo": return (<svg {...c}><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-4" /></svg>);
     case "redo": return (<svg {...c}><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4" /></svg>);
     case "search": return (<svg {...c}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>);
