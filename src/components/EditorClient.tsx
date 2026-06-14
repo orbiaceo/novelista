@@ -619,7 +619,12 @@ export default function EditorClient({
 
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden text-xs text-ink-faint sm:inline">
-              {woerter.toLocaleString("de-DE")} Wörter · {statusText(status)}
+              {woerter.toLocaleString("de-DE")} Wörter
+              {woerter > 0
+                ? ` · ≈\u00A0${seitenSchaetzung(woerter).toLocaleString("de-DE")}\u00A0Seiten`
+                : ""}
+              {" · "}
+              {statusText(status)}
             </span>
             <ToolButton onClick={diktatUmschalten} active={diktiere} label={diktiere ? "Diktat beenden" : "Diktieren"}>
               <Icon name={diktiere ? "stop" : "mic"} />
@@ -942,6 +947,14 @@ export default function EditorClient({
       )}
     </div>
   );
+}
+
+// Geschätzte Seitenzahl im Taschenformat 12×19 cm (wie „Der Sog ins Nichts").
+// Kalibriert auf ~278 Wörter pro Seite (50.000 Wörter ≈ 180 Seiten).
+const WOERTER_PRO_TASCHENBUCHSEITE = 278;
+function seitenSchaetzung(woerter: number): number {
+  if (woerter <= 0) return 0;
+  return Math.max(1, Math.round(woerter / WOERTER_PRO_TASCHENBUCHSEITE));
 }
 
 function statusText(s: SaveStatus) {
