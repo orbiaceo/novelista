@@ -737,9 +737,6 @@ export default function EditorClient({
           >
             <Icon name="center" />
           </FmtButton>
-          <FmtButton onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} label="Zitat">
-            <Icon name="quote" />
-          </FmtButton>
           <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen „…“ (für Dialoge)">
             <span className="font-serif text-base leading-none">„“</span>
           </FmtButton>
@@ -795,9 +792,6 @@ export default function EditorClient({
           label="Zentriert"
         >
           <Icon name="center" />
-        </FmtButton>
-        <FmtButton onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} label="Zitat">
-          <Icon name="quote" />
         </FmtButton>
         <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen">
           <span className="font-serif text-base leading-none">„“</span>
