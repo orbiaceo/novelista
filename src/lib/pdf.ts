@@ -139,10 +139,13 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
 
   // ---- Titelseite (ohne Seitenzahl) ----
   // Titel exakt in die Blattmitte, Autor darüber, „Roman" darunter.
-  // Zentrierung manuell (x = Mitte − halbe Textbreite), damit sie garantiert stimmt.
+  // WICHTIG: Im Browser misst jsPDF die Breite von FETTEM Text falsch (zu
+  // schmal) → der Titel würde nach rechts rutschen. Darum messen wir die
+  // Breite über den zuverlässigen Kursiv-Stil und rechnen sie auf Fett hoch.
   doc.setTextColor(20);
   const cx = w / 2;
   const mitte = h / 2;
+  const BOLD_FAKTOR = 1.04; // Times Bold ist ~4 % breiter als Kursiv
 
   const zentriert = (text: string, size: number, style: string, y: number) => {
     doc.setFont(fontName, style);
@@ -151,18 +154,27 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     doc.text(text, cx - tw / 2, y);
   };
 
-  // Titelgröße so wählen, dass der Titel auf EINE Zeile passt
-  doc.setFont(fontName, "bold");
+  // Titelgröße bestimmen (über Kursiv-Breite × Bold-Faktor)
   const titelText = opts.title || "Mein Roman";
   let titelSize = 20;
+  doc.setFont(fontName, "italic");
   doc.setFontSize(titelSize);
-  while (titelSize > 13 && doc.getTextWidth(titelText) > bodyWidth) {
+  while (
+    titelSize > 13 &&
+    doc.getTextWidth(titelText) * BOLD_FAKTOR > bodyWidth
+  ) {
     titelSize -= 0.5;
     doc.setFontSize(titelSize);
   }
+  const twTitel = doc.getTextWidth(titelText) * BOLD_FAKTOR;
 
+  // Autor (oben, kursiv)
   zentriert(opts.author || "Sonja Paredes Pernía", 12, "italic", mitte - 42);
-  zentriert(titelText, titelSize, "bold", mitte + titelSize * 0.35);
+  // Titel (fett gezeichnet, aber über Kursiv-Breite zentriert)
+  doc.setFont(fontName, "bold");
+  doc.setFontSize(titelSize);
+  doc.text(titelText, cx - twTitel / 2, mitte + titelSize * 0.35);
+  // „Roman" (unten, kursiv)
   zentriert("Roman", 11, "italic", mitte + 46);
   // Wechsel zur ersten Textseite (Titel bleibt ungezählt)
   doc.addPage([w, h], "portrait");
