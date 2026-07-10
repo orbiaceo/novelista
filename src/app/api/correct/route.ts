@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { lektoriereHtml } from "@/lib/openai";
+import { lektoriereHtml, stilVerbessernHtml } from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,9 +16,11 @@ export async function POST(request: Request) {
   }
 
   let html: string;
+  let modus: string;
   try {
     const body = await request.json();
     html = typeof body?.html === "string" ? body.html : "";
+    modus = typeof body?.modus === "string" ? body.modus : "lektorat";
   } catch {
     return NextResponse.json({ error: "Ungültige Anfrage." }, { status: 400 });
   }
@@ -28,7 +30,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const corrected = await lektoriereHtml(html);
+    const corrected =
+      modus === "stil"
+        ? await stilVerbessernHtml(html)
+        : await lektoriereHtml(html);
     return NextResponse.json({ corrected });
   } catch (err) {
     console.error("Korrektur fehlgeschlagen:", err);

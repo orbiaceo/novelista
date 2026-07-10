@@ -1,6 +1,14 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Der Client wird erst beim ersten Aufruf erzeugt, nicht schon beim Laden
+// der Datei. So braucht der Build (next build) keinen API-Schlüssel.
+let _client: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _client;
+}
 
 /**
  * Systemanweisung – die App verhält sich wie ein professioneller Lektor.
@@ -13,16 +21,26 @@ Der Text wird dir als HTML übergeben (Tags wie <p>, <em>, <strong>, <blockquote
 
 DEINE EINZIGE AUFGABE: Den Textinhalt korrigieren – ohne Inhalt, Stil oder Formatierung zu verändern.
 
+WICHTIGSTE EINZELREGEL – fehlende Anführungszeichen bei wörtlicher Rede:
+Enthält ein Satz erkennbar direkte Rede mit einem Redebegleitsatz (z. B. „sagte er", „fragte sie", „rief Mara", „antwortete er", „flüsterte sie", „meinte er", „erwiderte er") und FEHLEN die Anführungszeichen, MUSST du die deutschen Gänsefüßchen um die gesprochenen Worte setzen. Das ist eine Pflichtkorrektur, kein optionaler Stilvorschlag. Beispiele:
+   • Ich hatte Hunger, sagte er. → „Ich hatte Hunger", sagte er.
+   • Komm sofort her, rief sie. → „Komm sofort her", rief sie.
+   • Er fragte: Wo warst du? → Er fragte: „Wo warst du?"
+   • Mara sagte, sie sei müde. → bleibt unverändert (indirekte Rede, KEINE Anführungszeichen!)
+Nur bei indirekter Rede oder wenn völlig unklar ist, was gesprochen wird, lässt du es unverändert.
+
 DU KORRIGIERST nur den sichtbaren Text:
 - Rechtschreibung, Grammatik, Zeichensetzung
-- deutsche Anführungszeichen („…") und verschachtelte (‚…')
-- offensichtliche Tippfehler
+- deutsche Anführungszeichen („…") und verschachtelte (‚…'); wandle gerade Anführungszeichen ("…") in deutsche um
+- fehlende Anführungszeichen bei wörtlicher Rede ergänzen (siehe Pflichtregel oben)
+- offensichtliche Tippfehler (z. B. „uuf" → „auf")
+- sinngemäß bzw. im Kontext falsch gewählte Wörter, die eindeutig ein Fehler sind und die gemeinte Aussage verfehlen (z. B. „Das Buch stand auf dem Tisch" → „Das Buch lag auf dem Tisch"; „Sie nahm den Hörer ab und legte auf" nur, wenn eindeutig falsch). Ändere ein Wort NUR, wenn es klar ein Fehler ist – niemals aus reinem Stilgeschmack.
 - formale Roman-Konventionen (Gedankenstriche, Auslassungspunkte …)
 
 DU VERÄNDERST NIEMALS:
-- den Schreibstil, die Wortwahl, den Satzbau (sofern grammatisch korrekt)
+- den Schreibstil, den Satzbau (sofern grammatisch korrekt)
 - den Inhalt, die Bedeutung, die Aussage
-Du schreibst nichts um, kürzt nichts, ergänzt nichts, interpretierst nichts.
+Du schreibst keine korrekten Sätze um, kürzt nichts, fügst keinen neuen Inhalt hinzu, interpretierst nichts. (Fehlende Satzzeichen und Anführungszeichen DARFST du ergänzen – das ist Korrektur, kein neuer Inhalt.) Wortänderungen nur bei echten Fehlern (siehe oben), nicht zur Stilverbesserung.
 
 ABSOLUT WICHTIG ZUR FORMATIERUNG:
 - Behalte ALLE HTML-Tags exakt an derselben Stelle bei (öffnend und schließend).
@@ -38,7 +56,7 @@ ohne Erklärungen, ohne Kommentare. Nur das HTML.`;
 export async function lektoriereHtml(html: string): Promise<string> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getClient().chat.completions.create({
     model,
     temperature: 0,
     messages: [
@@ -49,6 +67,41 @@ export async function lektoriereHtml(html: string): Promise<string> {
 
   let out = completion.choices[0]?.message?.content?.trim() ?? html;
   // Falls das Modell doch einen Codeblock drumherum setzt, entfernen.
+  out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  return out || html;
+}
+
+/**
+ * Systemanweisung für „Schöner schreiben" – formuliert eleganter,
+ * ohne Sinn oder Formatierung zu verändern.
+ */
+const STIL_SYSTEM_PROMPT = `Du bist ein erfahrener deutscher Literaturlektor.
+
+Der Text wird dir als HTML übergeben (Tags wie <p>, <em>, <strong>, <blockquote>, <h1>, <br>).
+
+DEINE AUFGABE: Formuliere den Text sprachlich schöner und eleganter – flüssigere Sätze, treffendere Wörter, besserer Rhythmus – OHNE die Bedeutung, die Aussage oder die Handlung zu verändern. Behalte die Stimme und den Ton der Autorin bei; mache den Text nicht künstlicher oder geschwollener, sondern natürlicher und klarer.
+
+REGELN:
+- Verändere niemals den Inhalt oder die Bedeutung.
+- Behalte ALLE HTML-Tags exakt bei (öffnend und schließend, gleiche Stellen). Korrigiere/verbessere nur den Text ZWISCHEN den Tags.
+- Verwende deutsche Anführungszeichen („…").
+- Erfinde nichts dazu, kürze keine Inhalte weg.
+
+AUSGABE: Gib AUSSCHLIESSLICH das überarbeitete HTML zurück – ohne Markdown, ohne Erklärungen.`;
+
+export async function stilVerbessernHtml(html: string): Promise<string> {
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+  const completion = await getClient().chat.completions.create({
+    model,
+    temperature: 0.6,
+    messages: [
+      { role: "system", content: STIL_SYSTEM_PROMPT },
+      { role: "user", content: html },
+    ],
+  });
+
+  let out = completion.choices[0]?.message?.content?.trim() ?? html;
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
   return out || html;
 }
