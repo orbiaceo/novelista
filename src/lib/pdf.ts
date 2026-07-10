@@ -8,10 +8,28 @@ export interface PdfOptions {
   title: string;
   widthCm: number;
   heightCm: number;
-  marginCm: number;
+  // Spiegelränder (mirrored margins) – einzeln
+  marginInnerCm: number; // Bundsteg
+  marginOuterCm: number;
+  marginTopCm: number;
+  marginBottomCm: number;
+  // Grundschrift
   fontSizePt: number;
+  leadingPt: number;
+  paragraphSpaceAfterPt: number;
+  hyphenMinChars: number;
   font: PdfFont;
-  satz: SatzArt; // "flatter" = linksbündig (Einreichung), "buch" = Blocksatz + Silbentrennung
+  satz: SatzArt; // "buch" = Blocksatz + Silbentrennung (Druckfassung), "flatter" = linksbündig
+  // Kapitel
+  chapterFontSizePt: number;
+  chapterLeadingPt: number;
+  chapterSpaceBeforePt: number;
+  chapterSpaceAfterPt: number;
+  condChapterBreakCm: number; // Mindesthöhe, sonst neue Seite
+  forceBreakTitles: string[]; // diese Kapitel beginnen zwingend auf neuer Seite
+  // Seitenzahlen
+  folioStart: number; // Anzeige-Seitenzahl der ersten Textseite
+  pageNumberSizePt: number;
 }
 
 const FONT_MAP: Record<PdfFont, string> = {
@@ -21,6 +39,7 @@ const FONT_MAP: Record<PdfFont, string> = {
 };
 
 const CM_TO_PT = 28.3465;
+const MM = CM_TO_PT / 10;
 
 interface Style {
   bold: boolean;
@@ -45,26 +64,38 @@ function trenne(word: string): string[] {
 }
 
 /**
- * Erzeugt ein druckfertiges Buch-PDF aus dem formatierten Manuskript (HTML).
- * Unterstützt Fett, Kursiv, Zentriert, Blockzitate, Kapitel (Überschriften)
- * sowie zwei Satzarten: Flattersatz (linksbündig) und Buchsatz (Blocksatz
- * mit deutscher Silbentrennung).
+ * Erzeugt ein druckfertiges Buch-PDF, das der finalen BoD-Maquette von
+ * „Der Sog ins Nichts" nachempfunden ist: 120x190 mm, Spiegelränder,
+ * festes Leading, Kapitel mit CondPageBreak sowie Seitenzahlen außen unten.
  */
 export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   const w = opts.widthCm * CM_TO_PT;
   const h = opts.heightCm * CM_TO_PT;
-  const margin = opts.marginCm * CM_TO_PT;
+  const mInner = opts.marginInnerCm * CM_TO_PT;
+  const mOuter = opts.marginOuterCm * CM_TO_PT;
+  const mTop = opts.marginTopCm * CM_TO_PT;
+  const mBottom = opts.marginBottomCm * CM_TO_PT;
+
   const fontName = FONT_MAP[opts.font];
   const baseSize = opts.fontSizePt;
-  const lineHeight = baseSize * 1.6;
-  const bottom = h - margin;
+  const lineHeight = opts.leadingPt;
+  const bodyTop = mTop;
+  const bodyBottom = h - mBottom;
+  const bodyWidth = w - mInner - mOuter; // konstante Satzspiegelbreite (90 mm)
   const quoteIndent = 0.9 * CM_TO_PT;
+  const condBreak = opts.condChapterBreakCm * CM_TO_PT;
   const buch = opts.satz === "buch";
+  const forceSet = new Set(
+    opts.forceBreakTitles.map((t) => t.trim().toLowerCase())
+  );
 
   const doc = new jsPDF({ unit: "pt", format: [w, h] });
 
-  let y = margin;
-  let pageNumber = 1;
+  let folio = opts.folioStart; // Anzeige-Seitenzahl der aktuellen Textseite
+  let y = bodyTop;
+
+  const istRecto = () => folio % 2 === 1; // ungerade = rechte Seite, Bundsteg links
+  const leftMargin = () => (istRecto() ? mInner : mOuter);
 
   const applyFont = (style: Style, size: number) => {
     const s =
@@ -84,27 +115,41 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     return doc.getTextWidth(text);
   };
 
+  // Seitenzahl außen unten, 7,5 mm über der Papierunterkante
   const seitenzahl = () => {
     doc.setFont(fontName, "normal");
-    doc.setFontSize(baseSize - 2);
-    doc.setTextColor(120);
-    doc.text(String(pageNumber), w / 2, h - margin / 2, { align: "center" });
+    doc.setFontSize(opts.pageNumberSizePt);
+    doc.setTextColor(102); // #666
+    const yNum = h - 7.5 * MM;
+    if (istRecto()) {
+      doc.text(String(folio), w - mOuter, yNum, { align: "right" });
+    } else {
+      doc.text(String(folio), mOuter, yNum, { align: "left" });
+    }
     doc.setTextColor(20);
   };
 
   const neueSeite = () => {
     seitenzahl();
-    doc.addPage([w, h], w > h ? "landscape" : "portrait");
-    pageNumber += 1;
-    y = margin;
+    doc.addPage([w, h], "portrait");
+    folio += 1;
+    y = bodyTop;
   };
 
-  // ---- Titelseite ----
-  doc.setFont(fontName, "normal");
-  doc.setFontSize(baseSize + 14);
+  // ---- Titelseite (ohne Seitenzahl) ----
+  doc.setFont(fontName, "italic");
+  doc.setFontSize(baseSize + 1.5);
   doc.setTextColor(20);
-  doc.text(opts.title || "Mein Roman", w / 2, h / 2 - 10, { align: "center" });
-  neueSeite();
+  doc.text("Sonja Paredes Pernía", w / 2, h / 2 - 40, { align: "center" });
+  doc.setFont(fontName, "bold");
+  doc.setFontSize(baseSize + 10.5);
+  doc.text(opts.title || "Mein Roman", w / 2, h / 2 - 12, { align: "center" });
+  doc.setFont(fontName, "italic");
+  doc.setFontSize(baseSize + 1.5);
+  doc.text("Roman", w / 2, h / 2 + 12, { align: "center" });
+  // Wechsel zur ersten Textseite (Titel bleibt ungezählt)
+  doc.addPage([w, h], "portrait");
+  y = bodyTop;
 
   // ---- HTML zerlegen ----
   const dom = new DOMParser().parseFromString(html || "", "text/html");
@@ -137,15 +182,16 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     });
   };
 
+  // indent = zusätzlicher Einzug links UND rechts (für Blockzitate)
   const absatzRendern = (
     tokens: Token[],
     align: Ausrichtung,
-    leftX: number,
-    rightX: number,
+    indent: number,
     size: number,
-    silbentrennung: boolean
+    silbentrennung: boolean,
+    lh: number
   ) => {
-    const maxW = rightX - leftX;
+    const maxW = bodyWidth - 2 * indent;
     const spaceW =
       wordWidth(" ", { bold: false, italic: false }, size) || size * 0.3;
 
@@ -154,18 +200,18 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
 
     const flush = (isLast: boolean) => {
       if (line.length === 0) {
-        y += lineHeight;
+        y += lh;
         return;
       }
-      if (y > bottom) neueSeite();
+      if (y > bodyBottom) neueSeite();
+      const lx = leftMargin() + indent;
       const n = line.length;
       const wordsW = line.reduce((a, b) => a + b.width, 0);
       let gap = spaceW;
-      let x = leftX;
+      let x = lx;
       if (align === "center") {
-        x = leftX + (maxW - (wordsW + (n - 1) * spaceW)) / 2;
+        x = lx + (maxW - (wordsW + (n - 1) * spaceW)) / 2;
       } else if (align === "justify" && !isLast && n > 1) {
-        // Blocksatz: Restbreite gleichmäßig auf die Wortzwischenräume verteilen
         gap = spaceW + (maxW - wordsW - (n - 1) * spaceW) / (n - 1);
       }
       for (const word of line) {
@@ -173,7 +219,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
         doc.text(word.text, x, y);
         x += word.width + gap;
       }
-      y += lineHeight;
+      y += lh;
       line = [];
       lineW = 0;
     };
@@ -196,8 +242,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
         continue;
       }
 
-      // Passt nicht -> ggf. Silbentrennung versuchen
-      if (silbentrennung && tok.text.length >= 6) {
+      if (silbentrennung && tok.text.length >= opts.hyphenMinChars) {
         const parts = trenne(tok.text);
         if (parts.length > 1) {
           const avail = maxW - lineW - sp;
@@ -215,7 +260,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
             const bw = wordWidth(best, tok.style, size);
             line.push({ text: best, style: tok.style, width: bw });
             lineW += sp + bw;
-            const restText = tok.text.slice(best.length - 1); // "-" abziehen
+            const restText = tok.text.slice(best.length - 1);
             tokens.splice(i + 1, 0, { text: restText, style: tok.style });
             flush(false);
             i++;
@@ -224,13 +269,11 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
         }
       }
 
-      // Keine Trennung -> Zeilenumbruch; Wort auf neuer Zeile erneut versuchen
       if (line.length > 0) {
         flush(false);
         continue;
       }
 
-      // Zeile leer und Wort breiter als die Zeile: trotzdem setzen (Endlosschleife vermeiden)
       line.push({ text: tok.text, style: tok.style, width: ww });
       lineW += ww;
       i++;
@@ -242,19 +285,32 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     const tag = el.tagName.toLowerCase();
     const zentriert = (el.style.textAlign || "").toLowerCase() === "center";
 
-    // ---- Kapitel (Überschrift): neue Seite, zentriert, größer ----
+    // ---- Kapitel (Überschrift) ----
     if (/^h[1-6]$/.test(tag)) {
-      if (y > margin) neueSeite();
+      const raw = (el.textContent || "").trim();
+      const erzwingen = forceSet.has(raw.toLowerCase());
+      if (erzwingen && y > bodyTop) {
+        neueSeite();
+      } else if (bodyBottom - y < condBreak && y > bodyTop) {
+        neueSeite();
+      }
       doc.setTextColor(20);
+      y += opts.chapterSpaceBeforePt;
       const tokens: Token[] = [];
-      tokensSammeln(el, true, false, tokens);
-      y += lineHeight;
-      absatzRendern(tokens, "center", margin, w - margin, baseSize + 6, false);
-      y += lineHeight;
+      tokensSammeln(el, false, true, tokens); // Kapiteltitel kursiv
+      absatzRendern(
+        tokens,
+        "center",
+        0,
+        opts.chapterFontSizePt,
+        false,
+        opts.chapterLeadingPt
+      );
+      y += opts.chapterSpaceAfterPt;
       continue;
     }
 
-    // ---- Blockzitat: eingerückt ----
+    // ---- Blockzitat ----
     if (tag === "blockquote") {
       doc.setTextColor(20);
       const innerP = Array.from(el.children).filter(
@@ -267,14 +323,14 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
         absatzRendern(
           tokens,
           buch ? "justify" : "left",
-          margin + quoteIndent,
-          w - margin - quoteIndent,
+          quoteIndent,
           baseSize,
-          buch
+          buch,
+          lineHeight
         );
-        y += lineHeight * 0.3;
+        y += opts.paragraphSpaceAfterPt * 0.5;
       }
-      y += lineHeight * 0.4;
+      y += opts.paragraphSpaceAfterPt * 0.5;
       continue;
     }
 
@@ -283,17 +339,18 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     const tokens: Token[] = [];
     tokensSammeln(el, false, false, tokens);
     if (tokens.length === 0) {
-      y += lineHeight * 0.6;
+      y += lineHeight * 0.5;
       continue;
     }
     const align: Ausrichtung = zentriert ? "center" : buch ? "justify" : "left";
-    absatzRendern(tokens, align, margin, w - margin, baseSize, buch);
-    y += lineHeight * 0.35;
+    absatzRendern(tokens, align, 0, baseSize, buch, lineHeight);
+    y += opts.paragraphSpaceAfterPt;
   }
 
   seitenzahl();
 
   const safeName =
-    (opts.title || "roman").toLowerCase().replace(/[^a-z0-9äöüß]+/gi, "-") + ".pdf";
+    (opts.title || "roman").toLowerCase().replace(/[^a-z0-9äöüß]+/gi, "-") +
+    ".pdf";
   doc.save(safeName);
 }
