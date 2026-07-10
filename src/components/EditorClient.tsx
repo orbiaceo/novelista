@@ -279,6 +279,23 @@ export default function EditorClient({
     return ziel;
   }
 
+  // Wandelt (evtl. in <p>/Blöcke verpacktes) Korrektur-HTML in reines Inline-HTML
+  // um, damit beim Wiedereinsetzen KEIN zusätzlicher Absatz / kein Enter entsteht.
+  function alsInline(html: string): string {
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    const bloecke = div.querySelectorAll(
+      "p, div, h1, h2, h3, h4, h5, h6, blockquote, li"
+    );
+    if (bloecke.length > 0) {
+      return Array.from(bloecke)
+        .map((b) => (b as HTMLElement).innerHTML.trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+    return div.innerHTML;
+  }
+
   // Plain-Text eines Bereichs samt Positions-Zuordnung (für LanguageTool)
   // ---- Knopf 1: Korrigieren (KI – Fehler, ohne den Stil zu verändern) ----
   async function korrigierenLassen() {
@@ -308,7 +325,7 @@ export default function EditorClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Fehler");
 
-      editor.chain().focus().insertContentAt({ from, to }, data.corrected).run();
+      editor.chain().focus().insertContentAt({ from, to }, alsInline(data.corrected)).run();
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
       setHinweis("Korrigiert ✓");
@@ -351,7 +368,7 @@ export default function EditorClient({
       editor
         .chain()
         .focus()
-        .insertContentAt({ from, to }, data.corrected)
+        .insertContentAt({ from, to }, alsInline(data.corrected))
         .run();
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
