@@ -9,36 +9,39 @@ interface Props {
   onClose: () => void;
 }
 
-// Gängige Buchformate (Breite × Höhe in cm)
-const FORMATE: Record<string, { w: number; h: number }> = {
-  "Taschenbuch (12,5 × 20,6)": { w: 12.5, h: 20.6 },
-  "Roman (13,5 × 21,5)": { w: 13.5, h: 21.5 },
-  "Hardcover (15,5 × 23,5)": { w: 15.5, h: 23.5 },
-  "A5 (14,8 × 21,0)": { w: 14.8, h: 21.0 },
+// Exakte Werte der finalen BoD-Maquette von „Der Sog ins Nichts"
+// (aus dem Satz-Skript build_half.py).
+const BOD = {
+  widthCm: 12,
+  heightCm: 19,
+  marginInnerCm: 1.7, // Bundsteg
+  marginOuterCm: 1.3,
+  marginTopCm: 1.4,
+  marginBottomCm: 1.5,
+  fontSizePt: 9.5,
+  leadingPt: 13.5,
+  paragraphSpaceAfterPt: 6,
+  hyphenMinChars: 7,
+  chapterFontSizePt: 12,
+  chapterLeadingPt: 16,
+  chapterSpaceBeforePt: 14,
+  chapterSpaceAfterPt: 10,
+  condChapterBreakCm: 3.0,
+  forceBreakTitles: ["Das Erdbeben"],
+  folioStart: 5,
+  pageNumberSizePt: 8,
 };
 
 export default function ExportDialog({ title, html, onClose }: Props) {
-  const [format, setFormat] = useState(Object.keys(FORMATE)[0]);
-  const [margin, setMargin] = useState(2.0);
-  const [fontSize, setFontSize] = useState(11);
   const [font, setFont] = useState<PdfFont>("Serif");
-  const [satz, setSatz] = useState<SatzArt>("flatter");
+  const [satz, setSatz] = useState<SatzArt>("buch");
   const [busy, setBusy] = useState(false);
 
   async function exportieren() {
     setBusy(true);
     try {
       const { manuskriptAlsPdf } = await import("@/lib/pdf");
-      const f = FORMATE[format];
-      manuskriptAlsPdf(html, {
-        title,
-        widthCm: f.w,
-        heightCm: f.h,
-        marginCm: margin,
-        fontSizePt: fontSize,
-        font,
-        satz,
-      });
+      manuskriptAlsPdf(html, { title, font, satz, ...BOD });
       onClose();
     } finally {
       setBusy(false);
@@ -56,35 +59,21 @@ export default function ExportDialog({ title, html, onClose }: Props) {
       >
         <h2 className="font-serif text-2xl text-ink">Als Buch-PDF exportieren</h2>
         <p className="mt-1 text-sm text-ink-soft">
-          Dein Manuskript wird druckfertig gesetzt – mit Kapitelanfängen und
-          Seitenzahlen.
+          Gesetzt im finalen Druckformat – so, wie die gedruckte Fassung bei BoD
+          aussehen wird.
         </p>
 
         <div className="mt-6 space-y-5">
-          <Feld label="Buchformat">
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-oxblood"
-            >
-              {Object.keys(FORMATE).map((k) => (
-                <option key={k}>{k}</option>
-              ))}
-            </select>
+          <Feld label="Druckformat (fest, wie BoD)">
+            <div className="rounded-lg border border-line bg-surface px-3 py-2.5 text-sm leading-relaxed text-ink">
+              12 × 19 cm · Spiegelränder 17/13/14/15 mm
+              <br />
+              9,5 pt · Zeilenabstand 13,5 pt · Seitenzahlen außen
+            </div>
           </Feld>
 
           <Feld label="Satz">
             <div className="flex gap-2">
-              <button
-                onClick={() => setSatz("flatter")}
-                className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${
-                  satz === "flatter"
-                    ? "border-oxblood bg-oxblood text-paper"
-                    : "border-line bg-surface text-ink-soft hover:border-ink-faint"
-                }`}
-              >
-                Flattersatz
-              </button>
               <button
                 onClick={() => setSatz("buch")}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${
@@ -95,11 +84,21 @@ export default function ExportDialog({ title, html, onClose }: Props) {
               >
                 Buchsatz
               </button>
+              <button
+                onClick={() => setSatz("flatter")}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm transition ${
+                  satz === "flatter"
+                    ? "border-oxblood bg-oxblood text-paper"
+                    : "border-line bg-surface text-ink-soft hover:border-ink-faint"
+                }`}
+              >
+                Flattersatz
+              </button>
             </div>
             <p className="mt-2 text-xs leading-relaxed text-ink-faint">
-              {satz === "flatter"
-                ? "Linksbündig, ohne große Lücken – ideal zum Einreichen bei Agenturen und Verlagen."
-                : "Blocksatz mit deutscher Silbentrennung – sieht aus wie ein gedrucktes Buch (fürs Self-Publishing)."}
+              {satz === "buch"
+                ? "Blocksatz mit deutscher Silbentrennung – genau wie die Druckfassung."
+                : "Linksbündig, ohne Silbentrennung – zum Einreichen bei Agenturen und Verlagen."}
             </p>
           </Feld>
 
@@ -119,32 +118,11 @@ export default function ExportDialog({ title, html, onClose }: Props) {
                 </button>
               ))}
             </div>
+            <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+              Die Druckfassung nutzt Caladea (≈ Cambria). „Serif" kommt dem am
+              nächsten und ist für die Vorschau empfohlen.
+            </p>
           </Feld>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Feld label={`Seitenrand: ${margin.toFixed(1)} cm`}>
-              <input
-                type="range"
-                min={1}
-                max={3.5}
-                step={0.1}
-                value={margin}
-                onChange={(e) => setMargin(parseFloat(e.target.value))}
-                className="w-full accent-oxblood"
-              />
-            </Feld>
-            <Feld label={`Schriftgröße: ${fontSize} pt`}>
-              <input
-                type="range"
-                min={9}
-                max={14}
-                step={0.5}
-                value={fontSize}
-                onChange={(e) => setFontSize(parseFloat(e.target.value))}
-                className="w-full accent-oxblood"
-              />
-            </Feld>
-          </div>
         </div>
 
         <div className="mt-8 flex gap-3">
