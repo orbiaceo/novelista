@@ -146,17 +146,24 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   doc.text(opts.author || "Sonja Paredes Pernía", cx, h * 0.42, {
     align: "center",
   });
-  // Titel (bricht bei langen Titeln um, damit nichts über den Rand läuft)
+  // Titel: Schriftgröße so wählen, dass er möglichst auf EINE Zeile passt
+  // (sieht zentriert am saubersten aus); nur zur Not umbrechen.
   doc.setFont(fontName, "bold");
-  doc.setFontSize(20);
-  const titelZeilen = doc.splitTextToSize(
-    opts.title || "Mein Roman",
-    bodyWidth
-  ) as string[];
+  const titelText = opts.title || "Mein Roman";
+  let titelSize = 20;
+  doc.setFontSize(titelSize);
+  while (titelSize > 13 && doc.getTextWidth(titelText) > bodyWidth) {
+    titelSize -= 0.5;
+    doc.setFontSize(titelSize);
+  }
+  const titelZeilen =
+    doc.getTextWidth(titelText) > bodyWidth
+      ? (doc.splitTextToSize(titelText, bodyWidth) as string[])
+      : [titelText];
   let ty = h * 0.5;
   for (const zeile of titelZeilen) {
     doc.text(zeile, cx, ty, { align: "center" });
-    ty += 26;
+    ty += titelSize * 1.3;
   }
   // „Roman" (unter dem Titel)
   doc.setFont(fontName, "italic");
