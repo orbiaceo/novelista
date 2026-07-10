@@ -137,17 +137,21 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     y = bodyTop;
   };
 
-  // ---- Titelseite (ohne Seitenzahl, alles zentriert) ----
+  // ---- Titelseite (ohne Seitenzahl) ----
+  // Titel exakt in die Blattmitte, Autor darüber, „Roman" darunter.
+  // Zentrierung manuell (x = Mitte − halbe Textbreite), damit sie garantiert stimmt.
   doc.setTextColor(20);
   const cx = w / 2;
-  // Autor (oben)
-  doc.setFont(fontName, "italic");
-  doc.setFontSize(12);
-  doc.text(opts.author || "Sonja Paredes Pernía", cx, h * 0.42, {
-    align: "center",
-  });
-  // Titel: Schriftgröße so wählen, dass er möglichst auf EINE Zeile passt
-  // (sieht zentriert am saubersten aus); nur zur Not umbrechen.
+  const mitte = h / 2;
+
+  const zentriert = (text: string, size: number, style: string, y: number) => {
+    doc.setFont(fontName, style);
+    doc.setFontSize(size);
+    const tw = doc.getTextWidth(text);
+    doc.text(text, cx - tw / 2, y);
+  };
+
+  // Titelgröße so wählen, dass der Titel auf EINE Zeile passt
   doc.setFont(fontName, "bold");
   const titelText = opts.title || "Mein Roman";
   let titelSize = 20;
@@ -156,19 +160,10 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     titelSize -= 0.5;
     doc.setFontSize(titelSize);
   }
-  const titelZeilen =
-    doc.getTextWidth(titelText) > bodyWidth
-      ? (doc.splitTextToSize(titelText, bodyWidth) as string[])
-      : [titelText];
-  let ty = h * 0.5;
-  for (const zeile of titelZeilen) {
-    doc.text(zeile, cx, ty, { align: "center" });
-    ty += titelSize * 1.3;
-  }
-  // „Roman" (unter dem Titel)
-  doc.setFont(fontName, "italic");
-  doc.setFontSize(11);
-  doc.text("Roman", cx, ty + 6, { align: "center" });
+
+  zentriert(opts.author || "Sonja Paredes Pernía", 12, "italic", mitte - 42);
+  zentriert(titelText, titelSize, "bold", mitte + titelSize * 0.35);
+  zentriert("Roman", 11, "italic", mitte + 46);
   // Wechsel zur ersten Textseite (Titel bleibt ungezählt)
   doc.addPage([w, h], "portrait");
   y = bodyTop;
