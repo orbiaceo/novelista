@@ -36,6 +36,7 @@ export default function ExportDialog({ title, html, onClose }: Props) {
   const [font, setFont] = useState<PdfFont>("Serif");
   const [satz, setSatz] = useState<SatzArt>("buch");
   const [busy, setBusy] = useState(false);
+  const [busyDocx, setBusyDocx] = useState(false);
 
   async function exportieren() {
     setBusy(true);
@@ -45,6 +46,17 @@ export default function ExportDialog({ title, html, onClose }: Props) {
       onClose();
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function exportierenDocx() {
+    setBusyDocx(true);
+    try {
+      const { manuskriptAlsDocx } = await import("@/lib/docx");
+      await manuskriptAlsDocx(html, title);
+      onClose();
+    } finally {
+      setBusyDocx(false);
     }
   }
 
@@ -125,19 +137,31 @@ export default function ExportDialog({ title, html, onClose }: Props) {
           </Feld>
         </div>
 
-        <div className="mt-8 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-xl border border-line px-4 py-3 text-ink-soft transition hover:bg-paper-dim"
-          >
-            Abbrechen
-          </button>
+        <div className="mt-8 space-y-2">
           <button
             onClick={exportieren}
-            disabled={busy}
-            className="flex-1 rounded-xl bg-ink px-4 py-3 font-medium text-paper transition hover:bg-oxblood disabled:opacity-60"
+            disabled={busy || busyDocx}
+            className="w-full rounded-xl bg-ink px-4 py-3 font-medium text-paper transition hover:bg-oxblood disabled:opacity-60"
           >
-            {busy ? "Erstelle PDF …" : "PDF erstellen"}
+            {busy ? "Erstelle PDF …" : "PDF erstellen (Vorschau fürs Buch)"}
+          </button>
+          <button
+            onClick={exportierenDocx}
+            disabled={busy || busyDocx}
+            className="w-full rounded-xl border border-line px-4 py-3 font-medium text-ink-soft transition hover:border-oxblood hover:text-oxblood disabled:opacity-60"
+          >
+            {busyDocx ? "Erstelle .docx …" : "Für den Satz exportieren (.docx)"}
+          </button>
+          <p className="px-1 pt-1 text-xs leading-relaxed text-ink-faint">
+            Die <strong>PDF</strong> zeigt der Autorin, wie das Buch aussehen wird.
+            Die <strong>.docx</strong> ist die Vorlage für Claude als Verlag, um
+            daraus den finalen BoD-Buchsatz zu erzeugen.
+          </p>
+          <button
+            onClick={onClose}
+            className="mt-1 w-full rounded-xl px-4 py-2.5 text-sm text-ink-soft transition hover:bg-paper-dim"
+          >
+            Abbrechen
           </button>
         </div>
       </div>

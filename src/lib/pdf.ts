@@ -6,6 +6,7 @@ export type SatzArt = "flatter" | "buch";
 
 export interface PdfOptions {
   title: string;
+  author?: string;
   widthCm: number;
   heightCm: number;
   // Spiegelränder (mirrored margins) – einzeln
@@ -136,17 +137,31 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     y = bodyTop;
   };
 
-  // ---- Titelseite (ohne Seitenzahl) ----
-  doc.setFont(fontName, "italic");
-  doc.setFontSize(baseSize + 1.5);
+  // ---- Titelseite (ohne Seitenzahl, alles zentriert) ----
   doc.setTextColor(20);
-  doc.text("Sonja Paredes Pernía", w / 2, h / 2 - 40, { align: "center" });
-  doc.setFont(fontName, "bold");
-  doc.setFontSize(baseSize + 10.5);
-  doc.text(opts.title || "Mein Roman", w / 2, h / 2 - 12, { align: "center" });
+  const cx = w / 2;
+  // Autor (oben)
   doc.setFont(fontName, "italic");
-  doc.setFontSize(baseSize + 1.5);
-  doc.text("Roman", w / 2, h / 2 + 12, { align: "center" });
+  doc.setFontSize(12);
+  doc.text(opts.author || "Sonja Paredes Pernía", cx, h * 0.42, {
+    align: "center",
+  });
+  // Titel (bricht bei langen Titeln um, damit nichts über den Rand läuft)
+  doc.setFont(fontName, "bold");
+  doc.setFontSize(20);
+  const titelZeilen = doc.splitTextToSize(
+    opts.title || "Mein Roman",
+    bodyWidth
+  ) as string[];
+  let ty = h * 0.5;
+  for (const zeile of titelZeilen) {
+    doc.text(zeile, cx, ty, { align: "center" });
+    ty += 26;
+  }
+  // „Roman" (unter dem Titel)
+  doc.setFont(fontName, "italic");
+  doc.setFontSize(11);
+  doc.text("Roman", cx, ty + 6, { align: "center" });
   // Wechsel zur ersten Textseite (Titel bleibt ungezählt)
   doc.addPage([w, h], "portrait");
   y = bodyTop;
