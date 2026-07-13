@@ -561,7 +561,7 @@ export default function EditorClient({
         file.name.replace(/\.docx$/i, "").trim() || "Importiertes Dokument";
       const { data, error } = await supabase
         .from("manuscripts")
-        .insert({ user_id: userId, title: titel, content: html })
+        .insert({ user_id: userId, title: titel, content: html, art: bibTab })
         .select("id")
         .single();
       if (error || !data?.id) throw new Error("Speichern fehlgeschlagen");
