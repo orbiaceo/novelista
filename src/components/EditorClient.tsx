@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -159,12 +160,61 @@ export default function EditorClient({
     return () => window.removeEventListener("resize", messen);
   }, []);
 
+  // Für Gedichte: Enter = Vers-Umbruch (Zeilen bleiben zusammen),
+  // Doppel-Enter = neue Strophe. Sonst normales Verhalten.
+  const artRef = useRef(projektArt);
+  useEffect(() => {
+    artRef.current = projektArt;
+  }, [projektArt]);
+
+  const gedichtEnter = useMemo(
+    () =>
+      Extension.create({
+        name: "gedichtEnter",
+        priority: 1000,
+        addKeyboardShortcuts() {
+          return {
+            Enter: () => {
+              if (artRef.current !== "gedicht") return false;
+              const ed = this.editor;
+              const { selection } = ed.state;
+              if (!selection.empty) return false;
+              const { $from } = selection;
+              const before = $from.nodeBefore;
+              const leererVers =
+                $from.parentOffset === 0 ||
+                (before != null && before.type.name === "hardBreak");
+              if (leererVers) {
+                // neue Strophe: leeren Vers-Umbruch entfernen, dann Absatz teilen
+                return ed
+                  .chain()
+                  .command(({ tr, dispatch }) => {
+                    const b = ed.state.selection.$from.nodeBefore;
+                    if (b && b.type.name === "hardBreak" && dispatch) {
+                      const pos = ed.state.selection.$from.pos;
+                      tr.delete(pos - b.nodeSize, pos);
+                    }
+                    return true;
+                  })
+                  .splitBlock()
+                  .run();
+              }
+              // Vers-Umbruch innerhalb der Strophe
+              return ed.commands.setHardBreak();
+            },
+          };
+        },
+      }),
+    []
+  );
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({ heading: { levels: [1] } }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Es war einmal …" }),
+      gedichtEnter,
     ],
     content: vorbereiten(initialContent),
     editorProps: {
@@ -677,17 +727,19 @@ export default function EditorClient({
           >
             <Icon name="home" />
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSidebar(true);
-              sidebarOpenedAt.current = Date.now();
-            }}
-            aria-label="Kapitelübersicht"
-            className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim md:hidden"
-          >
-            <Icon name="list" />
-          </button>
+          {projektArt === "roman" && (
+            <button
+              type="button"
+              onClick={() => {
+                setSidebar(true);
+                sidebarOpenedAt.current = Date.now();
+              }}
+              aria-label="Kapitelübersicht"
+              className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim md:hidden"
+            >
+              <Icon name="list" />
+            </button>
+          )}
           <span className="hidden font-serif text-lg tracking-tight text-ink sm:inline">
             Novelista
           </span>
@@ -772,10 +824,14 @@ export default function EditorClient({
           <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen „…“ (für Dialoge)">
             <span className="font-serif text-base leading-none">„“</span>
           </FmtButton>
-          <div className="mx-1 h-5 w-px bg-line" />
-          <FmtButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive("heading", { level: 1 })} label="Als Kapitel markieren">
-            <span className="text-sm font-medium">Kapitel</span>
-          </FmtButton>
+          {projektArt === "roman" && (
+            <>
+              <div className="mx-1 h-5 w-px bg-line" />
+              <FmtButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive("heading", { level: 1 })} label="Als Kapitel markieren">
+                <span className="text-sm font-medium">Kapitel</span>
+              </FmtButton>
+            </>
+          )}
         </div>
 
         {/* ---- Suchen & Ersetzen ---- */}
@@ -839,12 +895,14 @@ export default function EditorClient({
 
       <div className="flex flex-1">
         {/* ---- Kapitelübersicht: Desktop (feste Spalte) ---- */}
-        <aside
-          style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
-          className="sticky hidden w-64 shrink-0 overflow-y-auto border-r border-line bg-paper-dim/40 p-5 md:block"
-        >
-          <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} />
-        </aside>
+        {projektArt === "roman" && (
+          <aside
+            style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
+            className="sticky hidden w-64 shrink-0 overflow-y-auto border-r border-line bg-paper-dim/40 p-5 md:block"
+          >
+            <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} />
+          </aside>
+        )}
 
         {/* ---- Kapitelübersicht: Handy (ausklappbares Panel) ---- */}
         {sidebar && (
