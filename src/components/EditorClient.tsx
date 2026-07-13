@@ -946,7 +946,7 @@ export default function EditorClient({
       )}
 
       {exportOffen && (
-        <ExportDialog title={title} html={editor.getHTML()} onClose={() => setExportOffen(false)} />
+        <ExportDialog title={title} html={editor.getHTML()} art={projektArt} onClose={() => setExportOffen(false)} />
       )}
 
       {/* ---- Bibliothek (Projektverwaltung) ---- */}
