@@ -89,6 +89,7 @@ export default function EditorClient({
 
   // Projektverwaltung (Bibliothek)
   const [bibliothek, setBibliothek] = useState(false);
+  const [bibTab, setBibTab] = useState(projektArt);
   const [projektListe, setProjektListe] = useState<ProjektInfo[]>(projekte);
   const [projektMenue, setProjektMenue] = useState<string | null>(null);
   const [importiere, setImportiere] = useState(false);
@@ -963,10 +964,31 @@ export default function EditorClient({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-6 pb-3 pt-6">
-              <h2 className="font-serif text-2xl text-ink">Meine Romane</h2>
+              <h2 className="font-serif text-2xl text-ink">Meine Texte</h2>
               <p className="mt-1 text-sm text-ink-faint">
                 Wähle ein Projekt oder beginne ein neues.
               </p>
+            </div>
+            <div className="mx-5 mb-3 flex gap-1 rounded-xl bg-paper-dim/60 p-1">
+              {(
+                [
+                  ["roman", "Romane"],
+                  ["erzaehlung", "Erzählungen"],
+                  ["gedicht", "Gedichte"],
+                ] as [string, string][]
+              ).map(([wert, beschriftung]) => (
+                <button
+                  key={wert}
+                  onClick={() => setBibTab(wert)}
+                  className={`flex-1 rounded-lg px-2 py-2 text-xs font-medium transition ${
+                    bibTab === wert
+                      ? "bg-paper text-oxblood shadow-sm"
+                      : "text-ink-soft hover:text-ink"
+                  }`}
+                >
+                  {beschriftung}
+                </button>
+              ))}
             </div>
             <button
               onClick={projektNeu}
@@ -991,7 +1013,7 @@ export default function EditorClient({
             <div className="flex-1 overflow-y-auto px-3 pb-6">
               <ProjektAbschnitt
                 titel="Aktuelle Projekte"
-                projekte={projektListe.filter((p) => p.status !== "fertig")}
+                projekte={projektListe.filter((p) => p.art === bibTab && p.status !== "fertig")}
                 leer="Keine aktiven Projekte."
                 aktivId={manuscriptId}
                 menueId={projektMenue}
@@ -1003,7 +1025,7 @@ export default function EditorClient({
               />
               <ProjektAbschnitt
                 titel="Abgeschlossene Projekte"
-                projekte={projektListe.filter((p) => p.status === "fertig")}
+                projekte={projektListe.filter((p) => p.art === bibTab && p.status === "fertig")}
                 leer="Noch nichts abgeschlossen."
                 aktivId={manuscriptId}
                 menueId={projektMenue}
@@ -1205,11 +1227,6 @@ function ProjektAbschnitt({
                 {p.title}
               </span>
               <span className="mt-0.5 block text-xs text-ink-faint">
-                {p.art === "gedicht"
-                  ? "Gedicht · "
-                  : p.art === "erzaehlung"
-                    ? "Erzählung · "
-                    : ""}
                 {(p.word_count ?? 0).toLocaleString("de-DE")} Wörter
               </span>
             </button>
