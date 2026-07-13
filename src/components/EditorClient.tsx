@@ -16,6 +16,7 @@ interface ProjektInfo {
   id: string;
   title: string;
   status: string;
+  art: string;
   word_count: number;
   updated_at: string;
 }
@@ -26,6 +27,7 @@ interface Props {
   manuscriptId: string;
   userId: string;
   projektStatus: string;
+  projektArt: string;
   projekte: ProjektInfo[];
 }
 
@@ -71,6 +73,7 @@ export default function EditorClient({
   manuscriptId,
   userId,
   projektStatus,
+  projektArt,
   projekte,
 }: Props) {
   const router = useRouter();
@@ -88,6 +91,7 @@ export default function EditorClient({
   const [projektListe, setProjektListe] = useState<ProjektInfo[]>(projekte);
   const [projektMenue, setProjektMenue] = useState<string | null>(null);
   const [importiere, setImportiere] = useState(false);
+  const [neuOffen, setNeuOffen] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const [exportOffen, setExportOffen] = useState(false);
   const [hinweis, setHinweis] = useState<string | null>(null);
@@ -448,12 +452,23 @@ export default function EditorClient({
     router.push("/editor?p=" + id);
   }
 
-  async function projektNeu() {
-    const name = prompt("Titel des neuen Romans:");
+  function projektNeu() {
+    setNeuOffen(true);
+  }
+
+  async function projektErstellen(art: string) {
+    setNeuOffen(false);
+    const label =
+      art === "gedicht"
+        ? "Titel des Gedichts:"
+        : art === "erzaehlung"
+          ? "Titel der Erzählung:"
+          : "Titel des Romans:";
+    const name = prompt(label);
     if (!name || !name.trim()) return;
     const { data } = await supabase
       .from("manuscripts")
-      .insert({ user_id: userId, title: name.trim() })
+      .insert({ user_id: userId, title: name.trim(), art })
       .select("id")
       .single();
     if (data?.id) router.push("/editor?p=" + data.id);
@@ -688,7 +703,7 @@ export default function EditorClient({
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden text-xs text-ink-faint sm:inline">
               {woerter.toLocaleString("de-DE")} Wörter
-              {woerter > 0
+              {woerter > 0 && projektArt === "roman"
                 ? ` · ≈\u00A0${seitenSchaetzung(woerter).toLocaleString("de-DE")}\u00A0Seiten`
                 : ""}
               {" · "}
@@ -945,6 +960,45 @@ export default function EditorClient({
         </div>
       )}
 
+      {/* ---- Neues Projekt: Art wählen ---- */}
+      {neuOffen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-6 backdrop-blur-sm" onClick={() => setNeuOffen(false)}>
+          <div className="rise w-full max-w-xs rounded-2xl border border-line bg-paper p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-serif text-xl text-ink">Neues Projekt</h2>
+            <p className="mt-1 text-sm text-ink-soft">Was möchtest du schreiben?</p>
+            <div className="mt-5 space-y-2">
+              <button
+                onClick={() => projektErstellen("roman")}
+                className="w-full rounded-xl border border-line px-4 py-3 text-left transition hover:border-oxblood hover:text-oxblood"
+              >
+                <span className="font-medium">Roman</span>
+                <span className="block text-xs text-ink-faint">Mit Kapiteln und Seitenschätzung</span>
+              </button>
+              <button
+                onClick={() => projektErstellen("erzaehlung")}
+                className="w-full rounded-xl border border-line px-4 py-3 text-left transition hover:border-oxblood hover:text-oxblood"
+              >
+                <span className="font-medium">Erzählung</span>
+                <span className="block text-xs text-ink-faint">Kurze Geschichte, ohne Kapitel</span>
+              </button>
+              <button
+                onClick={() => projektErstellen("gedicht")}
+                className="w-full rounded-xl border border-line px-4 py-3 text-left transition hover:border-oxblood hover:text-oxblood"
+              >
+                <span className="font-medium">Gedicht</span>
+                <span className="block text-xs text-ink-faint">Verse bleiben Zeile für Zeile erhalten</span>
+              </button>
+            </div>
+            <button
+              onClick={() => setNeuOffen(false)}
+              className="mt-4 w-full rounded-xl px-4 py-2.5 text-sm text-ink-soft transition hover:bg-paper-dim"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ---- Einstellungen ---- */}
       {einstellungenOffen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink/30 px-6 backdrop-blur-sm" onClick={() => setEinstellungenOffen(false)}>
@@ -1093,6 +1147,11 @@ function ProjektAbschnitt({
                 {p.title}
               </span>
               <span className="mt-0.5 block text-xs text-ink-faint">
+                {p.art === "gedicht"
+                  ? "Gedicht · "
+                  : p.art === "erzaehlung"
+                    ? "Erzählung · "
+                    : ""}
                 {(p.word_count ?? 0).toLocaleString("de-DE")} Wörter
               </span>
             </button>
