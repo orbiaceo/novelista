@@ -21,6 +21,8 @@ export interface PdfOptions {
   hyphenMinChars: number;
   font: PdfFont;
   satz: SatzArt; // "buch" = Blocksatz + Silbentrennung (Druckfassung), "flatter" = linksbündig
+  untertitel?: string; // Wort unter dem Titel: "Roman" | "Erzählung" | "Gedicht"
+  gedichtZentriert?: boolean; // Gedicht: Verse zentriert statt linksbündig
   // Kapitel
   chapterFontSizePt: number;
   chapterLeadingPt: number;
@@ -174,8 +176,8 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   doc.setFont(fontName, "bold");
   doc.setFontSize(titelSize);
   doc.text(titelText, cx - twTitel / 2, mitte + titelSize * 0.35);
-  // „Roman" (unten, kursiv)
-  zentriert("Roman", 11, "italic", mitte + 46);
+  // Untertitel (unten, kursiv): Roman | Erzählung | Gedicht
+  zentriert(opts.untertitel || "Roman", 11, "italic", mitte + 46);
   // Wechsel zur ersten Textseite (Titel bleibt ungezählt)
   doc.addPage([w, h], "portrait");
   y = bodyTop;
@@ -371,7 +373,13 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
       y += lineHeight * 0.5;
       continue;
     }
-    const align: Ausrichtung = zentriert ? "center" : buch ? "justify" : "left";
+    const align: Ausrichtung = zentriert
+      ? "center"
+      : opts.gedichtZentriert
+        ? "center"
+        : buch
+          ? "justify"
+          : "left";
     absatzRendern(tokens, align, 0, baseSize, buch, lineHeight);
     y += opts.paragraphSpaceAfterPt;
   }

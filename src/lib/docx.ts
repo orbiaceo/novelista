@@ -3,7 +3,12 @@
 // Fett/Kursiv erhalten. Ideales Format, damit Claude als Verlag daraus den
 // BoD-Buchsatz erzeugen kann (die Satz-Pipeline liest DOCX).
 
-export async function manuskriptAlsDocx(html: string, title: string, author = "Sonja Paredes Pernía") {
+export async function manuskriptAlsDocx(
+  html: string,
+  title: string,
+  author = "Sonja Paredes Pernía",
+  untertitel = "Roman"
+) {
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } =
     await import("docx");
 
@@ -56,7 +61,7 @@ export async function manuskriptAlsDocx(html: string, title: string, author = "S
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 240 },
-      children: [new TextRun({ text: "Roman", italics: true })],
+      children: [new TextRun({ text: untertitel, italics: true })],
     })
   );
 
