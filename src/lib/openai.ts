@@ -53,14 +53,28 @@ UNKLARE STELLEN behältst du unverändert bei.
 AUSGABE: Gib AUSSCHLIESSLICH das korrigierte HTML zurück – ohne Markdown-Codeblöcke,
 ohne Erklärungen, ohne Kommentare. Nur das HTML.`;
 
-export async function lektoriereHtml(html: string): Promise<string> {
+const VERS_HINWEIS = `
+
+ACHTUNG – DIES IST EIN GEDICHT, KEINE PROSA:
+- Der Text besteht aus Versen. Jeder Zeilenumbruch <br> markiert ein Vers-Ende und MUSS exakt erhalten bleiben.
+- Entferne KEINE <br> und füge KEINE hinzu. Fasse Verse NIEMALS zu einem Fließtext-Absatz zusammen. Ändere die Zeilenaufteilung nicht.
+- Korrigiere nur INNERHALB der Verse (Rechtschreibung, klare Tippfehler).
+- In Gedichten ist Zeichensetzung oft bewusst reduziert oder fehlt – ergänze KEINE Satzzeichen und KEINE Anführungszeichen, außer es ist ein eindeutiger Fehler.`;
+
+export async function lektoriereHtml(
+  html: string,
+  gedicht = false
+): Promise<string> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
   const completion = await getClient().chat.completions.create({
     model,
     temperature: 0,
     messages: [
-      { role: "system", content: LEKTOR_SYSTEM_PROMPT },
+      {
+        role: "system",
+        content: gedicht ? LEKTOR_SYSTEM_PROMPT + VERS_HINWEIS : LEKTOR_SYSTEM_PROMPT,
+      },
       { role: "user", content: html },
     ],
   });
@@ -89,14 +103,20 @@ REGELN:
 
 AUSGABE: Gib AUSSCHLIESSLICH das überarbeitete HTML zurück – ohne Markdown, ohne Erklärungen.`;
 
-export async function stilVerbessernHtml(html: string): Promise<string> {
+export async function stilVerbessernHtml(
+  html: string,
+  gedicht = false
+): Promise<string> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
   const completion = await getClient().chat.completions.create({
     model,
     temperature: 0.6,
     messages: [
-      { role: "system", content: STIL_SYSTEM_PROMPT },
+      {
+        role: "system",
+        content: gedicht ? STIL_SYSTEM_PROMPT + VERS_HINWEIS : STIL_SYSTEM_PROMPT,
+      },
       { role: "user", content: html },
     ],
   });
