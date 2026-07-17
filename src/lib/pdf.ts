@@ -23,6 +23,7 @@ export interface PdfOptions {
   satz: SatzArt; // "buch" = Blocksatz + Silbentrennung (Druckfassung), "flatter" = linksbündig
   untertitel?: string; // Wort unter dem Titel: "Roman" | "Erzählung" | "Gedicht"
   gedichtZentriert?: boolean; // Gedicht: Verse zentriert statt linksbündig
+  titelLinks?: boolean; // Überschriften standardmäßig links (Gedichte)
   // Kapitel
   chapterFontSizePt: number;
   chapterLeadingPt: number;
@@ -331,7 +332,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
       tokensSammeln(el, false, true, tokens); // Kapiteltitel kursiv
       absatzRendern(
         tokens,
-        "center",
+        zentriert ? "center" : opts.titelLinks ? "left" : "center",
         0,
         opts.chapterFontSizePt,
         false,
