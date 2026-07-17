@@ -77,6 +77,7 @@ export default function ExportDialog({ title, html, art, onClose }: Props) {
           untertitel,
           gedichtZentriert: istGedicht && ausrichtung === "zentriert",
           titelLinks: istGedicht,
+          chapterAlwaysNewPage: istGedicht,
           chapterFontSizePt: 13,
           chapterLeadingPt: 17,
           chapterSpaceBeforePt: 14,
