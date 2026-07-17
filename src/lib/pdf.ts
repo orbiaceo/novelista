@@ -46,6 +46,53 @@ const FONT_MAP: Record<PdfFont, string> = {
 const CM_TO_PT = 28.3465;
 const MM = CM_TO_PT / 10;
 
+// Fremde Zeichen, die wie lateinische Buchstaben aussehen („Homoglyphen").
+// Sie stammen oft aus importierten Word-Dateien und lassen sich in der
+// Standardschrift nicht drucken – die Zeile bricht dann auseinander.
+const HOMOGLYPHEN: Record<string, string> = {
+  // Kyrillisch (russisch)
+  "\u0430": "a", "\u0435": "e", "\u043E": "o", "\u0440": "p", "\u0441": "c",
+  "\u0443": "y", "\u0445": "x", "\u043C": "m", "\u043A": "k", "\u0432": "b",
+  "\u043D": "h", "\u0442": "t", "\u0456": "i", "\u0458": "j", "\u04BB": "h",
+  "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041A": "K", "\u041C": "M",
+  "\u041D": "H", "\u041E": "O", "\u0420": "P", "\u0421": "C", "\u0422": "T",
+  "\u0423": "Y", "\u0425": "X", "\u0406": "I", "\u0408": "J",
+  // Griechisch
+  "\u03BF": "o", "\u03B1": "a", "\u03B5": "e", "\u03C1": "p", "\u03BD": "v",
+  "\u03C5": "u", "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0397": "H",
+  "\u0399": "I", "\u039A": "K", "\u039C": "M", "\u039D": "N", "\u039F": "O",
+  "\u03A1": "P", "\u03A4": "T", "\u03A5": "Y", "\u03A7": "X",
+  // Arabisches Heh = h-Laut (alle Formen)
+  "\u0647": "h", "\uFEE9": "h", "\uFEEA": "h", "\uFEEB": "h", "\uFEEC": "h",
+};
+
+// Zeichen über 0xFF, die die Standardschrift trotzdem kann
+const ERLAUBT_HOCH = new Set(
+  "\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u017D" +
+    "\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u017E\u0178"
+);
+
+/** Macht Text druckbar: Homoglyphen werden zu echten Buchstaben. */
+function sauber(text: string): string {
+  let out = "";
+  for (const ch of text.normalize("NFC")) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x100 || ERLAUBT_HOCH.has(ch)) {
+      out += ch;
+      continue;
+    }
+    const ersatz = HOMOGLYPHEN[ch];
+    if (ersatz) {
+      out += ersatz;
+      continue;
+    }
+    // Unbekanntes Sonderzeichen: vereinfachen, sonst weglassen
+    const einfach = ch.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+    out += /^[\u0020-\u00FF]*$/.test(einfach) ? einfach : "";
+  }
+  return out;
+}
+
 interface Style {
   bold: boolean;
   italic: boolean;
@@ -159,7 +206,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   };
 
   // Titelgröße bestimmen (über Kursiv-Breite × Bold-Faktor)
-  const titelText = opts.title || "Mein Roman";
+  const titelText = sauber(opts.title || "Mein Roman");
   let titelSize = 20;
   doc.setFont(fontName, "italic");
   doc.setFontSize(titelSize);
@@ -173,7 +220,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   const twTitel = doc.getTextWidth(titelText) * BOLD_FAKTOR;
 
   // Autor (oben, kursiv)
-  zentriert(opts.author || "Sonja Paredes Pernía", 12, "italic", mitte - 42);
+  zentriert(sauber(opts.author || "Sonja Paredes Pernía"), 12, "italic", mitte - 42);
   // Titel (fett gezeichnet, aber über Kursiv-Breite zentriert)
   doc.setFont(fontName, "bold");
   doc.setFontSize(titelSize);
@@ -196,7 +243,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
   ) => {
     node.childNodes.forEach((child) => {
       if (child.nodeType === 3) {
-        const txt = child.textContent ?? "";
+        const txt = sauber(child.textContent ?? "");
         txt
           .split(/\s+/)
           .filter((x) => x.length > 0)
