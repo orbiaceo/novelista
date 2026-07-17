@@ -30,6 +30,7 @@ export interface PdfOptions {
   chapterSpaceBeforePt: number;
   chapterSpaceAfterPt: number;
   condChapterBreakCm: number; // Mindesthöhe, sonst neue Seite
+  chapterAlwaysNewPage?: boolean; // jeder Titel beginnt auf einer neuen Seite (Gedichte)
   forceBreakTitles: string[]; // diese Kapitel beginnen zwingend auf neuer Seite
   // Seitenzahlen
   folioStart: number; // Anzeige-Seitenzahl der ersten Textseite
@@ -320,7 +321,8 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     // ---- Kapitel (Überschrift) ----
     if (/^h[1-6]$/.test(tag)) {
       const raw = (el.textContent || "").trim();
-      const erzwingen = forceSet.has(raw.toLowerCase());
+      const erzwingen =
+        opts.chapterAlwaysNewPage === true || forceSet.has(raw.toLowerCase());
       if (erzwingen && y > bodyTop) {
         neueSeite();
       } else if (bodyBottom - y < condBreak && y > bodyTop) {
