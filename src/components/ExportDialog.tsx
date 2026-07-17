@@ -76,6 +76,7 @@ export default function ExportDialog({ title, html, art, onClose }: Props) {
           satz: istGedicht ? "flatter" : satz,
           untertitel,
           gedichtZentriert: istGedicht && ausrichtung === "zentriert",
+          titelLinks: istGedicht,
           chapterFontSizePt: 13,
           chapterLeadingPt: 17,
           chapterSpaceBeforePt: 14,

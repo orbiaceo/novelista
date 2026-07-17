@@ -222,7 +222,9 @@ export default function EditorClient({
     content: vorbereiten(initialContent),
     editorProps: {
       attributes: {
-        class: "manuscript-area min-h-[60vh] focus:outline-none",
+        class: `manuscript-area min-h-[60vh] focus:outline-none${
+          projektArt === "gedicht" ? " ist-gedicht" : ""
+        }`,
       },
     },
     onUpdate: ({ editor }) => {
