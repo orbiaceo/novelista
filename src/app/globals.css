@@ -84,6 +84,12 @@ body {
   margin: 1.8em 0 1em;
   letter-spacing: -0.01em;
 }
+
+/* Bei Gedichten steht der Titel standardmäßig links.
+   Zentrieren kann die Autorin jederzeit selbst über den Knopf. */
+.manuscript-area.ist-gedicht h1 {
+  text-align: left;
+}
 .manuscript-area blockquote {
   margin: 1em 0;
   padding-left: 1.1em;
