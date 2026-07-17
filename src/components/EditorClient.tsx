@@ -178,6 +178,8 @@ export default function EditorClient({
             Enter: () => {
               if (artRef.current !== "gedicht") return false;
               const ed = this.editor;
+              // In Titeln (Überschriften) normales Verhalten: neuer Absatz
+              if (ed.isActive("heading")) return false;
               const { selection } = ed.state;
               if (!selection.empty) return false;
               const { $from } = selection;
@@ -728,19 +730,19 @@ export default function EditorClient({
           >
             <Icon name="home" />
           </button>
-          {projektArt === "roman" && (
-            <button
-              type="button"
-              onClick={() => {
-                setSidebar(true);
-                sidebarOpenedAt.current = Date.now();
-              }}
-              aria-label="Kapitelübersicht"
-              className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim md:hidden"
-            >
-              <Icon name="list" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSidebar(true);
+              sidebarOpenedAt.current = Date.now();
+            }}
+            aria-label={
+              projektArt === "roman" ? "Kapitelübersicht" : "Übersicht"
+            }
+            className="rounded-lg p-2 text-ink-soft transition hover:bg-paper-dim md:hidden"
+          >
+            <Icon name="list" />
+          </button>
           <span className="hidden font-serif text-lg tracking-tight text-ink sm:inline">
             Novelista
           </span>
@@ -825,14 +827,20 @@ export default function EditorClient({
           <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen „…“ (für Dialoge)">
             <span className="font-serif text-base leading-none">„“</span>
           </FmtButton>
-          {projektArt === "roman" && (
-            <>
-              <div className="mx-1 h-5 w-px bg-line" />
-              <FmtButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive("heading", { level: 1 })} label="Als Kapitel markieren">
-                <span className="text-sm font-medium">Kapitel</span>
-              </FmtButton>
-            </>
-          )}
+          <div className="mx-1 h-5 w-px bg-line" />
+          <FmtButton
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            active={editor.isActive("heading", { level: 1 })}
+            label={
+              projektArt === "roman"
+                ? "Als Kapitel markieren"
+                : "Als Titel markieren"
+            }
+          >
+            <span className="text-sm font-medium">
+              {projektArt === "roman" ? "Kapitel" : "Titel"}
+            </span>
+          </FmtButton>
         </div>
 
         {/* ---- Suchen & Ersetzen ---- */}
@@ -895,15 +903,13 @@ export default function EditorClient({
       </BubbleMenu>
 
       <div className="flex flex-1">
-        {/* ---- Kapitelübersicht: Desktop (feste Spalte) ---- */}
-        {projektArt === "roman" && (
-          <aside
-            style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
-            className="sticky hidden w-64 shrink-0 overflow-y-auto border-r border-line bg-paper-dim/40 p-5 md:block"
-          >
-            <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} />
-          </aside>
-        )}
+        {/* ---- Übersicht: Desktop (feste Spalte) ---- */}
+        <aside
+          style={{ top: headerH, height: `calc(100vh - ${headerH}px)` }}
+          className="sticky hidden w-64 shrink-0 overflow-y-auto border-r border-line bg-paper-dim/40 p-5 md:block"
+        >
+          <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} wort={projektArt === "roman" ? "Kapitel" : "Titel"} />
+        </aside>
 
         {/* ---- Kapitelübersicht: Handy (ausklappbares Panel) ---- */}
         {sidebar && (
@@ -916,12 +922,12 @@ export default function EditorClient({
             />
             <aside className="fixed inset-y-0 left-0 z-40 w-72 max-w-[80%] overflow-y-auto border-r border-line bg-paper p-5 shadow-2xl md:hidden">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Kapitel</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-faint">{projektArt === "roman" ? "Kapitel" : "Titel"}</h2>
                 <button onClick={() => setSidebar(false)} aria-label="Schließen" className="rounded-lg p-1.5 text-ink-soft hover:bg-paper-dim">
                   <Icon name="close" />
                 </button>
               </div>
-              <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} ohneUeberschrift />
+              <KapitelListe kapitel={kapitel} onWaehle={zuKapitel} ohneUeberschrift wort={projektArt === "roman" ? "Kapitel" : "Titel"} />
             </aside>
           </>
         )}
@@ -1059,14 +1065,14 @@ export default function EditorClient({
                 className="w-full rounded-xl border border-line px-4 py-3 text-left transition hover:border-oxblood hover:text-oxblood"
               >
                 <span className="font-medium">Erzählung</span>
-                <span className="block text-xs text-ink-faint">Kurze Geschichte, ohne Kapitel</span>
+                <span className="block text-xs text-ink-faint">Kurzgeschichten, mit Titeln navigierbar</span>
               </button>
               <button
                 onClick={() => projektErstellen("gedicht")}
                 className="w-full rounded-xl border border-line px-4 py-3 text-left transition hover:border-oxblood hover:text-oxblood"
               >
                 <span className="font-medium">Gedicht</span>
-                <span className="block text-xs text-ink-faint">Verse bleiben Zeile für Zeile erhalten</span>
+                <span className="block text-xs text-ink-faint">Verse bleiben erhalten, mit Titeln navigierbar</span>
               </button>
             </div>
             <button
@@ -1279,22 +1285,25 @@ function KapitelListe({
   kapitel,
   onWaehle,
   ohneUeberschrift,
+  wort = "Kapitel",
 }: {
   kapitel: Kapitel[];
   onWaehle: (pos: number) => void;
   ohneUeberschrift?: boolean;
+  wort?: string;
 }) {
   return (
     <>
       {!ohneUeberschrift && (
         <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-ink-faint">
-          Kapitel
+          {wort}
         </h2>
       )}
       {kapitel.length === 0 ? (
         <p className="text-sm leading-relaxed text-ink-faint">
-          Schreibe den Kapitelnamen in eine eigene Zeile, setze den Cursor hinein
-          und drücke den Knopf „Kapitel". Die Übersicht entsteht dann von selbst.
+          {wort === "Titel"
+            ? 'Schreibe den Titel der Geschichte in eine eigene Zeile, setze den Cursor hinein und drücke den Knopf „Titel". Die Übersicht entsteht dann von selbst.'
+            : 'Schreibe den Kapitelnamen in eine eigene Zeile, setze den Cursor hinein und drücke den Knopf „Kapitel". Die Übersicht entsteht dann von selbst.'}
         </p>
       ) : (
         <ul className="space-y-1">
