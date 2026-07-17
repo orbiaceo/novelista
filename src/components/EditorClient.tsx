@@ -529,6 +529,52 @@ export default function EditorClient({
     if (data?.id) router.push("/editor?p=" + data.id);
   }
 
+  // Macht NUR die Zeile mit dem Cursor zum Titel/Kapitel.
+  // Nötig, weil Verse (und importierte Absätze) über <br> in EINEM Block
+  // stehen – sonst würde der Knopf das ganze Gedicht zur Überschrift machen.
+  function titelUmschalten() {
+    if (!editor) return;
+    if (editor.isActive("heading", { level: 1 })) {
+      editor.chain().focus().setParagraph().run();
+      return;
+    }
+
+    const zeileAbtrennen = (richtung: "vor" | "nach") => {
+      const { $from } = editor.state.selection;
+      const parent = $from.parent;
+      if (!parent.isTextblock) return;
+      const blockStart = $from.start();
+      const cursor = $from.pos;
+      const umbrueche: number[] = [];
+      parent.forEach((node, offset) => {
+        if (node.type.name === "hardBreak") umbrueche.push(blockStart + offset);
+      });
+      if (umbrueche.length === 0) return;
+
+      let pos: number | undefined;
+      if (richtung === "nach") {
+        pos = umbrueche.find((p) => p >= cursor);
+      } else {
+        const davor = umbrueche.filter((p) => p < cursor);
+        pos = davor.length ? davor[davor.length - 1] : undefined;
+      }
+      if (pos === undefined) return;
+
+      editor
+        .chain()
+        .command(({ tr }) => {
+          tr.delete(pos!, pos! + 1); // Vers-Umbruch entfernen
+          tr.split(pos!); // an dieser Stelle in zwei Blöcke teilen
+          return true;
+        })
+        .run();
+    };
+
+    zeileAbtrennen("nach"); // alles nach der Zeile abtrennen
+    zeileAbtrennen("vor"); // alles vor der Zeile abtrennen
+    editor.chain().focus().toggleHeading({ level: 1 }).run();
+  }
+
   // Word-Dokument (.docx) als neues Projekt importieren – inkl. Kapitel
   async function dateiImportieren(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -831,7 +877,7 @@ export default function EditorClient({
           </FmtButton>
           <div className="mx-1 h-5 w-px bg-line" />
           <FmtButton
-            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            onClick={titelUmschalten}
             active={editor.isActive("heading", { level: 1 })}
             label={
               projektArt === "roman"
