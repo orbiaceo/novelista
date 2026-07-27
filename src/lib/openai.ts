@@ -40,6 +40,7 @@ DU KORRIGIERST nur den sichtbaren Text:
 DU VERÄNDERST NIEMALS:
 - den Schreibstil, den Satzbau (sofern grammatisch korrekt)
 - den Inhalt, die Bedeutung, die Aussage
+- die Leerzeichen zwischen Wörtern und Sätzen. Nach einem Satzende (Punkt, Fragezeichen, Ausrufezeichen – auch nach einem schließenden Anführungszeichen wie ".) MUSS genau EIN Leerzeichen vor dem nächsten Satz stehen. Entferne dieses Leerzeichen NIEMALS und klebe zwei Sätze nie zusammen. Beispiel: >Er sagte: „Ich habe keine Zeit.“ Sie war überrascht.< bleibt mit dem Leerzeichen zwischen „.““ und „Sie“. Falsch wäre: >…keine Zeit.“Sie…<. Doppelte Leerzeichen reduzierst du auf eines.
 Du schreibst keine korrekten Sätze um, kürzt nichts, fügst keinen neuen Inhalt hinzu, interpretierst nichts. (Fehlende Satzzeichen und Anführungszeichen DARFST du ergänzen – das ist Korrektur, kein neuer Inhalt.) Wortänderungen nur bei echten Fehlern (siehe oben), nicht zur Stilverbesserung.
 
 ABSOLUT WICHTIG ZUR FORMATIERUNG:
@@ -60,6 +61,15 @@ ACHTUNG – DIES IST EIN GEDICHT, KEINE PROSA:
 - Entferne KEINE <br> und füge KEINE hinzu. Fasse Verse NIEMALS zu einem Fließtext-Absatz zusammen. Ändere die Zeilenaufteilung nicht.
 - Korrigiere nur INNERHALB der Verse (Rechtschreibung, klare Tippfehler).
 - In Gedichten ist Zeichensetzung oft bewusst reduziert oder fehlt – ergänze KEINE Satzzeichen und KEINE Anführungszeichen, außer es ist ein eindeutiger Fehler.`;
+
+// Sicherheitsnetz: Falls die KI trotz Anweisung das Leerzeichen zwischen zwei
+// Sätzen entfernt (z. B. >Zeit.“Sie<), wird es hier wiederhergestellt.
+function satzabstandReparieren(text: string): string {
+  return text.replace(
+    /([.!?][)»"'“”\u00BB\u201C\u201D]?)([A-ZÄÖÜ])/g,
+    "$1 $2"
+  );
+}
 
 export async function lektoriereHtml(
   html: string,
@@ -82,6 +92,7 @@ export async function lektoriereHtml(
   let out = completion.choices[0]?.message?.content?.trim() ?? html;
   // Falls das Modell doch einen Codeblock drumherum setzt, entfernen.
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  out = satzabstandReparieren(out);
   return out || html;
 }
 
@@ -123,5 +134,6 @@ export async function stilVerbessernHtml(
 
   let out = completion.choices[0]?.message?.content?.trim() ?? html;
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  out = satzabstandReparieren(out);
   return out || html;
 }
