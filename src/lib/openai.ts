@@ -21,13 +21,23 @@ Der Text wird dir als HTML übergeben (Tags wie <p>, <em>, <strong>, <blockquote
 
 DEINE EINZIGE AUFGABE: Den Textinhalt korrigieren – ohne Inhalt, Stil oder Formatierung zu verändern.
 
-WICHTIGSTE EINZELREGEL – fehlende Anführungszeichen bei wörtlicher Rede:
-Enthält ein Satz erkennbar direkte Rede mit einem Redebegleitsatz (z. B. „sagte er", „fragte sie", „rief Mara", „antwortete er", „flüsterte sie", „meinte er", „erwiderte er") und FEHLEN die Anführungszeichen, MUSST du die deutschen Gänsefüßchen um die gesprochenen Worte setzen. Das ist eine Pflichtkorrektur, kein optionaler Stilvorschlag. Beispiele:
-   • Ich hatte Hunger, sagte er. → „Ich hatte Hunger", sagte er.
-   • Komm sofort her, rief sie. → „Komm sofort her", rief sie.
-   • Er fragte: Wo warst du? → Er fragte: „Wo warst du?"
-   • Mara sagte, sie sei müde. → bleibt unverändert (indirekte Rede, KEINE Anführungszeichen!)
-Nur bei indirekter Rede oder wenn völlig unklar ist, was gesprochen wird, lässt du es unverändert.
+WICHTIGSTE AUFGABE – ANFÜHRUNGSZEICHEN BEI WÖRTLICHER REDE:
+Dieser Text wird oft DIKTIERT. Beim Diktieren entstehen KEINE Anführungszeichen. Deine Hauptaufgabe ist es deshalb, bei jeder wörtlichen Rede die fehlenden deutschen Gänsefüßchen „…" zu ergänzen. Das ist eine PFLICHTKORREKTUR, kein optionaler Vorschlag – setze sie zuverlässig und in JEDEM erkennbaren Fall.
+
+So erkennst du wörtliche Rede: Ein Satzteil ist ein gesprochener Satz UND daneben steht ein Redebegleitsatz mit einem Redeverb wie sagte, fragte, rief, antwortete, flüsterte, meinte, erwiderte, entgegnete, murmelte, schrie, stammelte, dachte, brüllte, seufzte, lachte – gebeugt in jeder Form (sagte er, fragte sie, rief Mara, antwortete ich). Der Redebegleitsatz kann VOR, IN der Mitte oder NACH der Rede stehen. In all diesen Fällen umschließt du die gesprochenen Worte mit „ und ".
+
+Beispiele (so MUSST du korrigieren):
+   • Er ist verrückt, sagte er.            → „Er ist verrückt", sagte er.
+   • Ich hatte Hunger, sagte er.           → „Ich hatte Hunger", sagte er.
+   • Komm sofort her, rief sie.            → „Komm sofort her", rief sie.
+   • Sie fragte: Wo warst du?              → Sie fragte: „Wo warst du?"
+   • Ich weiß nicht, sagte er, ob das geht. → „Ich weiß nicht", sagte er, „ob das geht."
+   • Sie flüsterte, es sei zu spät.        → bleibt unverändert (indirekte Rede – ob/dass/es sei … → KEINE Anführungszeichen!)
+
+GERADE ANFÜHRUNGSZEICHEN IMMER UMWANDELN:
+Wandle alle geraden Anführungszeichen ("…") in die typografisch korrekten deutschen um: öffnend „ und schließend ". Einfache gerade in ‚…'. Beispiel: "Er ist verrückt" → „Er ist verrückt".
+
+Nur bei echter indirekter Rede (mit ob, dass, wie, es sei …) oder wenn völlig unklar ist, was gesprochen wird, lässt du es unverändert.
 
 DU KORRIGIERST nur den sichtbaren Text:
 - Rechtschreibung, Grammatik, Zeichensetzung
@@ -71,6 +81,37 @@ function satzabstandReparieren(text: string): string {
   );
 }
 
+// Wandelt gerade DOPPELTE Anführungszeichen ("…") in die deutschen („…") um –
+// nur im sichtbaren Text, niemals in HTML-Tags. Einfache gerade Zeichen bleiben
+// unangetastet, weil sie im Deutschen meist Apostrophe sind (z. B. „geht's").
+function textAnfuehrung(t: string): string {
+  let offen = false;
+  let out = "";
+  for (const ch of t) {
+    if (ch === "\u201E") {
+      offen = true; // schon vorhandenes „ (öffnend)
+      out += ch;
+    } else if (ch === "\u201C") {
+      offen = false; // schon vorhandenes “ (schließend)
+      out += ch;
+    } else if (ch === '"') {
+      out += offen ? "\u201C" : "\u201E";
+      offen = !offen;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function deutscheAnfuehrung(html: string): string {
+  // Tags bleiben unangetastet (ungerade Indizes), nur Text wird gewandelt.
+  return html
+    .split(/(<[^>]+>)/)
+    .map((teil, i) => (i % 2 === 0 ? textAnfuehrung(teil) : teil))
+    .join("");
+}
+
 export async function lektoriereHtml(
   html: string,
   gedicht = false
@@ -92,6 +133,7 @@ export async function lektoriereHtml(
   let out = completion.choices[0]?.message?.content?.trim() ?? html;
   // Falls das Modell doch einen Codeblock drumherum setzt, entfernen.
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  out = deutscheAnfuehrung(out);
   out = satzabstandReparieren(out);
   return out || html;
 }
@@ -134,6 +176,7 @@ export async function stilVerbessernHtml(
 
   let out = completion.choices[0]?.message?.content?.trim() ?? html;
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  out = deutscheAnfuehrung(out);
   out = satzabstandReparieren(out);
   return out || html;
 }
