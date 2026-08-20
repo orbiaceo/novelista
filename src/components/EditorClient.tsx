@@ -9,8 +9,6 @@ import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import { DOMSerializer } from "@tiptap/pm/model";
 import { createClient } from "@/lib/supabase/client";
-import { erzeugePruefer, type Stelle } from "@/lib/pruefer";
-import { wortMerken } from "@/lib/rechtschreibung";
 import ExportDialog from "@/components/ExportDialog";
 
 type SaveStatus = "gespeichert" | "speichert" | "ungespeichert";
@@ -119,14 +117,6 @@ export default function EditorClient({
   const [dunkel, setDunkel] = useState(false);
   const [schrift, setSchrift] = useState(1.15);
 
-  // Zeichensetzung prüfen (Regelwerk, ohne KI)
-  const [pruefungAn, setPruefungAn] = useState(true);
-  const pruefungRef = useRef(true);
-  // Rechtschreibung prüfen (Wörterbuch, ohne KI)
-  const [rechtschreibungAn, setRechtschreibungAn] = useState(true);
-  const rechtschreibungRef = useRef(true);
-  const [stelle, setStelle] = useState<Stelle | null>(null);
-
   // Sicherungen
   const [sicherungenOffen, setSicherungenOffen] = useState(false);
   const [sicherungen, setSicherungen] = useState<
@@ -146,14 +136,8 @@ export default function EditorClient({
     try {
       const d = localStorage.getItem("novelista_dunkel") === "1";
       const s = parseFloat(localStorage.getItem("novelista_schrift") || "1.15");
-      const p = localStorage.getItem("novelista_pruefung") !== "0";
-      const r = localStorage.getItem("novelista_rechtschreibung") !== "0";
       setDunkel(d);
       setSchrift(isNaN(s) ? 1.15 : s);
-      setPruefungAn(p);
-      pruefungRef.current = p;
-      setRechtschreibungAn(r);
-      rechtschreibungRef.current = r;
     } catch {}
   }, []);
 
@@ -233,16 +217,6 @@ export default function EditorClient({
     []
   );
 
-  const pruefer = useMemo(
-    () =>
-      erzeugePruefer({
-        aktiv: () => pruefungRef.current,
-        rechtschreibung: () => rechtschreibungRef.current,
-        melde: (s) => setStelle(s),
-      }),
-    []
-  );
-
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -251,7 +225,6 @@ export default function EditorClient({
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Es war einmal …" }),
       gedichtEnter,
-      pruefer,
     ],
     content: vorbereiten(initialContent),
     editorProps: {
@@ -262,7 +235,6 @@ export default function EditorClient({
       },
     },
     onUpdate: ({ editor }) => {
-      setStelle(null);
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
     },
@@ -272,57 +244,6 @@ export default function EditorClient({
   function aktualisiere(ed: Editor) {
     setKapitel(leseKapitel(ed));
     setWoerter(zaehleWoerter(ed.getText()));
-  }
-
-  // Prüfung an/aus – die Unterstreichungen erscheinen bzw. verschwinden sofort
-  function pruefungUmschalten() {
-    const neu = !pruefungAn;
-    setPruefungAn(neu);
-    pruefungRef.current = neu;
-    setStelle(null);
-    try {
-      localStorage.setItem("novelista_pruefung", neu ? "1" : "0");
-    } catch {}
-    // dem Prüfer Bescheid geben (ändert den Text nicht, speichert also nicht)
-    editor?.view.dispatch(editor.state.tr.setMeta("pruefWechsel", true));
-  }
-
-  function rechtschreibungUmschalten() {
-    const neu = !rechtschreibungAn;
-    setRechtschreibungAn(neu);
-    rechtschreibungRef.current = neu;
-    setStelle(null);
-    try {
-      localStorage.setItem("novelista_rechtschreibung", neu ? "1" : "0");
-    } catch {}
-    editor?.view.dispatch(editor.state.tr.setMeta("pruefWechsel", true));
-  }
-
-  // Ein Wort dauerhaft als richtig hinterlegen (Namen, Orte, Erfundenes)
-  function stelleMerken() {
-    if (!editor || !stelle?.wort) return;
-    wortMerken(stelle.wort);
-    setStelle(null);
-    editor.view.dispatch(editor.state.tr.setMeta("pruefWechsel", true));
-    setHinweis(`\u201E${stelle.wort}\u201C gilt ab jetzt als richtig.`);
-    setTimeout(() => setHinweis(null), 2500);
-  }
-
-  // „Beheben": setzt den Vorschlag der Regel bzw. das gewählte Wort ein
-  function stelleBeheben(wahl?: string) {
-    if (!editor || !stelle) return;
-    const ersatz = wahl ?? stelle.ersatz;
-    if (ersatz === undefined) return;
-    const { von, bis } = stelle;
-    editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.insertText(ersatz, von, bis);
-        return true;
-      })
-      .run();
-    setStelle(null);
   }
 
   // ---- Automatische Sicherung (höchstens 1× pro Tag, max. 10 Stände) ----
@@ -1119,53 +1040,6 @@ export default function EditorClient({
         </main>
       </div>
 
-      {stelle && (
-        <div className="rise fixed bottom-5 left-1/2 z-30 w-[92%] max-w-sm -translate-x-1/2 rounded-2xl border border-line bg-paper p-4 shadow-2xl">
-          <p className="pr-6 text-sm leading-relaxed text-ink">
-            {stelle.meldung}
-          </p>
-          <button
-            onClick={() => setStelle(null)}
-            aria-label="Schließen"
-            className="absolute right-2 top-2 rounded-lg p-1.5 text-ink-faint hover:bg-paper-dim"
-          >
-            <Icon name="close" />
-          </button>
-          {stelle.vorschlaege && stelle.vorschlaege.length > 0 ? (
-            <>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {stelle.vorschlaege.map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => stelleBeheben(v)}
-                    className="rounded-xl bg-ink px-3.5 py-2 text-sm font-medium text-paper transition hover:bg-oxblood"
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-              {stelle.wort && (
-                <button
-                  onClick={stelleMerken}
-                  className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-sm text-ink-soft transition hover:border-oxblood hover:text-oxblood"
-                >
-                  Wort ist richtig – merken
-                </button>
-              )}
-            </>
-          ) : (
-            stelle.ersatz !== undefined && (
-              <button
-                onClick={() => stelleBeheben()}
-                className="mt-3 w-full rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-paper transition hover:bg-oxblood"
-              >
-                Beheben
-              </button>
-            )
-          )}
-        </div>
-      )}
-
       {hinweis && (
         <div className="rise fixed bottom-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-line bg-ink px-5 py-2.5 text-sm text-paper shadow-lg">
           {hinweis}
@@ -1320,42 +1194,6 @@ export default function EditorClient({
                 >
                   <span className={`absolute top-1 h-5 w-5 rounded-full bg-paper transition-all ${dunkel ? "left-6" : "left-1"}`} />
                 </button>
-              </div>
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-ink-soft">
-                    Zeichensetzung prüfen
-                  </span>
-                  <button
-                    onClick={pruefungUmschalten}
-                    className={`relative h-7 w-12 shrink-0 rounded-full transition ${pruefungAn ? "bg-oxblood" : "bg-line"}`}
-                    aria-label="Prüfung der Zeichensetzung umschalten"
-                  >
-                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-paper transition-all ${pruefungAn ? "left-6" : "left-1"}`} />
-                  </button>
-                </div>
-                <p className="mt-1 pr-14 text-xs leading-relaxed text-ink-faint">
-                  Unterstreicht fehlende Leerzeichen, Gänsefüßchen und
-                  Kommas. Antippen zeigt, welche Regel gemeint ist.
-                </p>
-              </div>
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-ink-soft">
-                    Rechtschreibung prüfen
-                  </span>
-                  <button
-                    onClick={rechtschreibungUmschalten}
-                    className={`relative h-7 w-12 shrink-0 rounded-full transition ${rechtschreibungAn ? "bg-oxblood" : "bg-line"}`}
-                    aria-label="Rechtschreibprüfung umschalten"
-                  >
-                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-paper transition-all ${rechtschreibungAn ? "left-6" : "left-1"}`} />
-                  </button>
-                </div>
-                <p className="mt-1 pr-14 text-xs leading-relaxed text-ink-faint">
-                  Deutsches Wörterbuch im Gerät, ohne Internet und ohne KI.
-                  Beim ersten Öffnen wird es kurz geladen.
-                </p>
               </div>
               <div>
                 <div className="mb-2 flex items-center justify-between">
