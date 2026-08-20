@@ -123,6 +123,18 @@ body {
   font-style: italic;
 }
 
+/* Vom Regelwerk gefundene Stellen: dezent wellig unterstrichen.
+   Antippen öffnet die Meldung. */
+.pruef-stelle {
+  text-decoration: underline wavy rgba(122, 43, 39, 0.55);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.22em;
+  cursor: pointer;
+}
+.dark .pruef-stelle {
+  text-decoration-color: rgba(201, 123, 111, 0.65);
+}
+
 /* Dünne Trennlinien */
 .hairline {
   border-color: theme("colors.line");
