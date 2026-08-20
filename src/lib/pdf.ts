@@ -181,8 +181,10 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     doc.setTextColor(20);
   };
 
-  const neueSeite = () => {
-    seitenzahl();
+  // ohneFolio: die gerade fertige Seite bekommt KEINE Seitenzahl
+  // (bei Zwischentiteln üblich – die Seite zählt aber weiter mit).
+  const neueSeite = (ohneFolio = false) => {
+    if (!ohneFolio) seitenzahl();
     doc.addPage([w, h], "portrait");
     folio += 1;
     y = bodyTop;
@@ -361,24 +363,63 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     flush(true);
   };
 
+  // Merkt sich, ob gerade eine Überschrift (h2) gesetzt wurde – das
+  // folgende Kapitel schließt dann direkt darunter an.
+  let nachUeberschrift = false;
+
   for (const el of bloecke) {
     const tag = el.tagName.toLowerCase();
     const zentriert = (el.style.textAlign || "").toLowerCase() === "center";
+
+    // ---- Überschrift über mehreren Kapiteln (h2) ----
+    // Sieht genauso aus wie ein Kapitel und steht eine Zeile darüber:
+    //   Überschrift
+    //   Kapitel
+    if (tag === "h2") {
+      // Nur umbrechen, wenn Überschrift UND Kapitel nicht mehr aufs
+      // Blatt passen – die beiden dürfen nie getrennt werden.
+      if (bodyBottom - y < condBreak * 1.5 && y > bodyTop) neueSeite();
+      doc.setTextColor(20);
+      y += opts.chapterSpaceBeforePt;
+      const tokens: Token[] = [];
+      // aufrecht – kursiv wird nur, was die Autorin selbst kursiv setzt
+      tokensSammeln(el, false, false, tokens);
+      absatzRendern(
+        tokens,
+        zentriert ? "center" : opts.titelLinks ? "left" : "center",
+        0,
+        opts.chapterFontSizePt,
+        false,
+        opts.chapterLeadingPt
+      );
+      y += opts.chapterLeadingPt * 0.8; // eine Leerzeile bis zum Kapitel
+      nachUeberschrift = true;
+      continue;
+    }
 
     // ---- Kapitel (Überschrift) ----
     if (/^h[1-6]$/.test(tag)) {
       const raw = (el.textContent || "").trim();
       const erzwingen =
-        opts.chapterAlwaysNewPage === true || forceSet.has(raw.toLowerCase());
+        !nachUeberschrift &&
+        (opts.chapterAlwaysNewPage === true || forceSet.has(raw.toLowerCase()));
       if (erzwingen && y > bodyTop) {
         neueSeite();
-      } else if (bodyBottom - y < condBreak && y > bodyTop) {
+      } else if (
+        !nachUeberschrift &&
+        bodyBottom - y < condBreak &&
+        y > bodyTop
+      ) {
         neueSeite();
       }
       doc.setTextColor(20);
-      y += opts.chapterSpaceBeforePt;
+      // Steht das Kapitel direkt unter einer Überschrift, kein zusätzlicher
+      // Abstand – der Zeilenabstand darüber genügt.
+      y += nachUeberschrift ? 0 : opts.chapterSpaceBeforePt;
+      nachUeberschrift = false;
       const tokens: Token[] = [];
-      tokensSammeln(el, false, true, tokens); // Kapiteltitel kursiv
+      // aufrecht – kursiv wird nur, was die Autorin selbst kursiv setzt
+      tokensSammeln(el, false, false, tokens);
       absatzRendern(
         tokens,
         zentriert ? "center" : opts.titelLinks ? "left" : "center",
@@ -393,6 +434,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
 
     // ---- Blockzitat ----
     if (tag === "blockquote") {
+      nachUeberschrift = false;
       doc.setTextColor(20);
       const innerP = Array.from(el.children).filter(
         (c) => c.tagName.toLowerCase() === "p"
@@ -416,6 +458,7 @@ export function manuskriptAlsPdf(html: string, opts: PdfOptions) {
     }
 
     // ---- Normaler Absatz ----
+    nachUeberschrift = false;
     doc.setTextColor(20);
     const tokens: Token[] = [];
     tokensSammeln(el, false, false, tokens);
