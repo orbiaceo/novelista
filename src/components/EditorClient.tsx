@@ -36,6 +36,7 @@ interface Kapitel {
   titel: string;
   pos: number;
   woerter: number;
+  ueberschrift?: boolean; // true = Sammeltitel über mehreren Kapiteln (h2)
 }
 
 // Alten reinen Text (ohne HTML) in Absätze umwandeln, damit nichts verloren geht.
@@ -59,7 +60,12 @@ function leseKapitel(ed: Editor): Kapitel[] {
   ed.state.doc.forEach((node, pos) => {
     if (node.type.name === "heading") {
       if (current) result.push(current);
-      current = { titel: node.textContent || "Ohne Titel", pos, woerter: 0 };
+      current = {
+        titel: node.textContent || "Ohne Titel",
+        pos,
+        woerter: 0,
+        ueberschrift: node.attrs.level === 2,
+      };
     } else if (current) {
       current.woerter += zaehleWoerter(node.textContent);
     }
@@ -214,7 +220,8 @@ export default function EditorClient({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({ heading: { levels: [1] } }),
+      // h1 = Kapitel/Titel, h2 = Überschrift über mehreren Kapiteln
+      StarterKit.configure({ heading: { levels: [1, 2] } }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Es war einmal …" }),
       gedichtEnter,
@@ -532,10 +539,17 @@ export default function EditorClient({
   // Macht NUR die Zeile mit dem Cursor zum Titel/Kapitel.
   // Nötig, weil Verse (und importierte Absätze) über <br> in EINEM Block
   // stehen – sonst würde der Knopf das ganze Gedicht zur Überschrift machen.
-  function titelUmschalten() {
+  // level 1 = Kapitel/Titel, level 2 = Überschrift über mehreren Kapiteln.
+  function titelUmschalten(level: 1 | 2 = 1) {
     if (!editor) return;
-    if (editor.isActive("heading", { level: 1 })) {
+    // Schon diese Art von Überschrift? → wieder normaler Absatz
+    if (editor.isActive("heading", { level })) {
       editor.chain().focus().setParagraph().run();
+      return;
+    }
+    // Schon die andere Art? → nur die Ebene wechseln, Zeile bleibt wie sie ist
+    if (editor.isActive("heading")) {
+      editor.chain().focus().setHeading({ level }).run();
       return;
     }
 
@@ -572,7 +586,7 @@ export default function EditorClient({
 
     zeileAbtrennen("nach"); // alles nach der Zeile abtrennen
     zeileAbtrennen("vor"); // alles vor der Zeile abtrennen
-    editor.chain().focus().toggleHeading({ level: 1 }).run();
+    editor.chain().focus().toggleHeading({ level }).run();
   }
 
   // Word-Dokument (.docx) als neues Projekt importieren – inkl. Kapitel
@@ -599,9 +613,29 @@ export default function EditorClient({
         "p[style-name='heading 1'] => h1:fresh",
         "p[style-name='Title'] => h1:fresh",
         "p[style-name='Titel'] => h1:fresh",
+        "p[style-name='Heading 2'] => h2:fresh",
+        "p[style-name='Überschrift 2'] => h2:fresh",
+        "p[style-name='heading 2'] => h2:fresh",
       ];
       const result = await mammoth.convertToHtml({ arrayBuffer }, { styleMap });
-      const html = result.value || "";
+      let html = result.value || "";
+
+      // In Word ist „Überschrift 1" die oberste Ebene, in Novelista ist das
+      // Kapitel (h1) und der Sammeltitel h2. Enthält das Dokument BEIDE
+      // Ebenen, tauschen wir sie – dann wird aus „Überschrift 1" der
+      // Sammeltitel und aus „Überschrift 2" das Kapitel. Hat das Dokument
+      // nur eine Ebene, bleibt alles wie es ist (normale Kapitel).
+      if (/<h2[\s>]/i.test(html) && /<h1[\s>]/i.test(html)) {
+        const roh = new DOMParser().parseFromString(html, "text/html");
+        roh.body.querySelectorAll("h1, h2").forEach((el) => {
+          const neu = roh.createElement(
+            el.tagName.toLowerCase() === "h1" ? "h2" : "h1"
+          );
+          neu.innerHTML = el.innerHTML;
+          el.replaceWith(neu);
+        });
+        html = roh.body.innerHTML;
+      }
       if (!html.trim()) {
         setHinweis("Das Dokument scheint leer zu sein.");
         setTimeout(() => setHinweis(null), 5000);
@@ -843,7 +877,12 @@ export default function EditorClient({
         </div>
 
         {/* ---- Formatierungsleiste ---- */}
-        <div className="flex items-center gap-1 border-t border-line px-4 py-1.5 sm:px-6">
+        {/* seitlich schiebbar: auf schmalen Handys passen sonst nicht
+            alle Knöpfe nebeneinander und der letzte fällt aus dem Bild */}
+        <div
+          className="flex items-center gap-1 overflow-x-auto border-t border-line px-4 py-1.5 sm:px-6"
+          style={{ scrollbarWidth: "none" }}
+        >
           <FmtButton
             onClick={() => editor.chain().focus().undo().run()}
             label="Rückgängig"
@@ -877,7 +916,7 @@ export default function EditorClient({
           </FmtButton>
           <div className="mx-1 h-5 w-px bg-line" />
           <FmtButton
-            onClick={titelUmschalten}
+            onClick={() => titelUmschalten(1)}
             active={editor.isActive("heading", { level: 1 })}
             label={
               projektArt === "roman"
@@ -888,6 +927,13 @@ export default function EditorClient({
             <span className="text-sm font-medium">
               {projektArt === "roman" ? "Kapitel" : "Titel"}
             </span>
+          </FmtButton>
+          <FmtButton
+            onClick={() => titelUmschalten(2)}
+            active={editor.isActive("heading", { level: 2 })}
+            label="Als Überschrift markieren (fasst mehrere Kapitel zusammen)"
+          >
+            <span className="text-base font-semibold">Überschrift</span>
           </FmtButton>
         </div>
 
@@ -1323,7 +1369,7 @@ function ToolButton({ children, onClick, active, disabled, label }: { children: 
 function FmtButton({ children, onClick, active, label }: { children: React.ReactNode; onClick: () => void; active?: boolean; label: string; }) {
   return (
     <button onClick={onClick} aria-label={label} title={label}
-      className={`flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm transition ${active ? "bg-oxblood text-paper" : "text-ink-soft hover:bg-paper-dim hover:text-ink"}`}>
+      className={`flex h-8 min-w-8 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-2 text-sm transition ${active ? "bg-oxblood text-paper" : "text-ink-soft hover:bg-paper-dim hover:text-ink"}`}>
       {children}
     </button>
   );
@@ -1356,17 +1402,31 @@ function KapitelListe({
       ) : (
         <ul className="space-y-1">
           {kapitel.map((k, i) => (
-            <li key={i}>
+            <li key={i} className={k.ueberschrift ? "pt-3" : undefined}>
               <button
                 onClick={() => onWaehle(k.pos)}
-                className="group w-full rounded-lg px-3 py-2 text-left transition hover:bg-paper-dim"
+                className={`group w-full rounded-lg py-2 text-left transition hover:bg-paper-dim ${
+                  k.ueberschrift
+                    ? "px-3"
+                    : kapitel.some((x) => x.ueberschrift)
+                      ? "pl-6 pr-3"
+                      : "px-3"
+                }`}
               >
-                <span className="block truncate font-serif text-ink group-hover:text-oxblood">
+                <span
+                  className={`block truncate group-hover:text-oxblood ${
+                    k.ueberschrift
+                      ? "font-serif text-base font-semibold uppercase tracking-wide text-ink"
+                      : "font-serif text-ink"
+                  }`}
+                >
                   {k.titel}
                 </span>
-                <span className="text-xs text-ink-faint">
-                  {k.woerter.toLocaleString("de-DE")} Wörter
-                </span>
+                {!k.ueberschrift && (
+                  <span className="text-xs text-ink-faint">
+                    {k.woerter.toLocaleString("de-DE")} Wörter
+                  </span>
+                )}
               </button>
             </li>
           ))}
