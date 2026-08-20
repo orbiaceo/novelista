@@ -9,6 +9,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import { DOMSerializer } from "@tiptap/pm/model";
 import { createClient } from "@/lib/supabase/client";
+import { erzeugePruefer, type Stelle } from "@/lib/pruefer";
 import ExportDialog from "@/components/ExportDialog";
 
 type SaveStatus = "gespeichert" | "speichert" | "ungespeichert";
@@ -117,6 +118,11 @@ export default function EditorClient({
   const [dunkel, setDunkel] = useState(false);
   const [schrift, setSchrift] = useState(1.15);
 
+  // Zeichensetzung prüfen (Regelwerk, ohne KI)
+  const [pruefungAn, setPruefungAn] = useState(true);
+  const pruefungRef = useRef(true);
+  const [stelle, setStelle] = useState<Stelle | null>(null);
+
   // Sicherungen
   const [sicherungenOffen, setSicherungenOffen] = useState(false);
   const [sicherungen, setSicherungen] = useState<
@@ -136,8 +142,11 @@ export default function EditorClient({
     try {
       const d = localStorage.getItem("novelista_dunkel") === "1";
       const s = parseFloat(localStorage.getItem("novelista_schrift") || "1.15");
+      const p = localStorage.getItem("novelista_pruefung") !== "0";
       setDunkel(d);
       setSchrift(isNaN(s) ? 1.15 : s);
+      setPruefungAn(p);
+      pruefungRef.current = p;
     } catch {}
   }, []);
 
@@ -217,6 +226,15 @@ export default function EditorClient({
     []
   );
 
+  const pruefer = useMemo(
+    () =>
+      erzeugePruefer({
+        aktiv: () => pruefungRef.current,
+        melde: (s) => setStelle(s),
+      }),
+    []
+  );
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -225,6 +243,7 @@ export default function EditorClient({
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Es war einmal …" }),
       gedichtEnter,
+      pruefer,
     ],
     content: vorbereiten(initialContent),
     editorProps: {
@@ -235,6 +254,7 @@ export default function EditorClient({
       },
     },
     onUpdate: ({ editor }) => {
+      setStelle(null);
       aktualisiere(editor);
       planeSpeichern(editor.getHTML(), titleRef.current);
     },
@@ -244,6 +264,34 @@ export default function EditorClient({
   function aktualisiere(ed: Editor) {
     setKapitel(leseKapitel(ed));
     setWoerter(zaehleWoerter(ed.getText()));
+  }
+
+  // Prüfung an/aus – die Unterstreichungen erscheinen bzw. verschwinden sofort
+  function pruefungUmschalten() {
+    const neu = !pruefungAn;
+    setPruefungAn(neu);
+    pruefungRef.current = neu;
+    setStelle(null);
+    try {
+      localStorage.setItem("novelista_pruefung", neu ? "1" : "0");
+    } catch {}
+    // dem Prüfer Bescheid geben (ändert den Text nicht, speichert also nicht)
+    editor?.view.dispatch(editor.state.tr.setMeta("pruefWechsel", true));
+  }
+
+  // „Beheben": setzt den Vorschlag der Regel ein
+  function stelleBeheben() {
+    if (!editor || !stelle || stelle.ersatz === undefined) return;
+    const { von, bis, ersatz } = stelle;
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.insertText(ersatz, von, bis);
+        return true;
+      })
+      .run();
+    setStelle(null);
   }
 
   // ---- Automatische Sicherung (höchstens 1× pro Tag, max. 10 Stände) ----
@@ -1040,6 +1088,29 @@ export default function EditorClient({
         </main>
       </div>
 
+      {stelle && (
+        <div className="rise fixed bottom-5 left-1/2 z-30 w-[92%] max-w-sm -translate-x-1/2 rounded-2xl border border-line bg-paper p-4 shadow-2xl">
+          <p className="pr-6 text-sm leading-relaxed text-ink">
+            {stelle.meldung}
+          </p>
+          <button
+            onClick={() => setStelle(null)}
+            aria-label="Schließen"
+            className="absolute right-2 top-2 rounded-lg p-1.5 text-ink-faint hover:bg-paper-dim"
+          >
+            <Icon name="close" />
+          </button>
+          {stelle.ersatz !== undefined && (
+            <button
+              onClick={stelleBeheben}
+              className="mt-3 w-full rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-paper transition hover:bg-oxblood"
+            >
+              Beheben
+            </button>
+          )}
+        </div>
+      )}
+
       {hinweis && (
         <div className="rise fixed bottom-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-line bg-ink px-5 py-2.5 text-sm text-paper shadow-lg">
           {hinweis}
@@ -1194,6 +1265,24 @@ export default function EditorClient({
                 >
                   <span className={`absolute top-1 h-5 w-5 rounded-full bg-paper transition-all ${dunkel ? "left-6" : "left-1"}`} />
                 </button>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-ink-soft">
+                    Zeichensetzung prüfen
+                  </span>
+                  <button
+                    onClick={pruefungUmschalten}
+                    className={`relative h-7 w-12 shrink-0 rounded-full transition ${pruefungAn ? "bg-oxblood" : "bg-line"}`}
+                    aria-label="Prüfung der Zeichensetzung umschalten"
+                  >
+                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-paper transition-all ${pruefungAn ? "left-6" : "left-1"}`} />
+                  </button>
+                </div>
+                <p className="mt-1 pr-14 text-xs leading-relaxed text-ink-faint">
+                  Unterstreicht fehlende Leerzeichen, Gänsefüßchen und
+                  Kommas. Antippen zeigt, welche Regel gemeint ist.
+                </p>
               </div>
               <div>
                 <div className="mb-2 flex items-center justify-between">
