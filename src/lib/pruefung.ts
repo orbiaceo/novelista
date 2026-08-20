@@ -8,6 +8,21 @@ export interface Fund {
   bis: number;
   meldung: string;
   ersatz?: string; // ersetzt den Bereich von..bis, wenn „Beheben" gedrückt wird
+  vorschlaege?: string[]; // mehrere Möglichkeiten (Rechtschreibung)
+  wort?: string; // das beanstandete Wort, für „Wort merken"
+}
+
+/** Sortiert Funde und wirft Überschneidungen weg (der frühere gewinnt). */
+export function entwirre(funde: Fund[]): Fund[] {
+  const sortiert = [...funde].sort((a, b) => a.von - b.von || a.bis - b.bis);
+  const sauber: Fund[] = [];
+  let bisher = -1;
+  for (const f of sortiert) {
+    if (f.von < bisher) continue;
+    sauber.push(f);
+    bisher = f.bis;
+  }
+  return sauber;
 }
 
 const SATZZEICHEN = ".,;:!?";
@@ -226,13 +241,5 @@ export function pruefe(text: string): Fund[] {
   }
 
   // ---- Überschneidungen entfernen (die frühere Regel gewinnt) ----
-  funde.sort((a, b) => a.von - b.von || a.bis - b.bis);
-  const sauber: Fund[] = [];
-  let bisher = -1;
-  for (const f of funde) {
-    if (f.von < bisher) continue;
-    sauber.push(f);
-    bisher = f.bis;
-  }
-  return sauber;
+  return entwirre(funde);
 }

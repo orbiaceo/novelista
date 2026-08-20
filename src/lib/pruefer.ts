@@ -6,13 +6,21 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { pruefe } from "./pruefung";
+import { pruefe, entwirre } from "./pruefung";
+import {
+  pruefeRechtschreibung,
+  woerterbuchBereit,
+  woerterbuchLaden,
+  standDerPruefung,
+} from "./rechtschreibung";
 
 export interface Stelle {
   von: number; // Position im Dokument
   bis: number;
   meldung: string;
   ersatz?: string;
+  vorschlaege?: string[];
+  wort?: string;
 }
 
 interface PruefStand {
@@ -23,11 +31,12 @@ interface PruefStand {
 export const pruefKey = new PluginKey<PruefStand>("pruefer");
 
 interface Optionen {
-  aktiv: () => boolean;
+  aktiv: () => boolean; // Zeichensetzung
+  rechtschreibung: () => boolean; // Wörterbuch
   melde: (stelle: Stelle | null) => void;
 }
 
-export function erzeugePruefer({ aktiv, melde }: Optionen) {
+export function erzeugePruefer({ aktiv, rechtschreibung, melde }: Optionen) {
   return Extension.create({
     name: "pruefer",
 
@@ -73,15 +82,21 @@ export function erzeugePruefer({ aktiv, melde }: Optionen) {
             let timer: ReturnType<typeof setTimeout> | null = null;
             let letzterDoc: unknown = null;
             let letztAktiv: boolean | null = null;
+            let letztRecht: boolean | null = null;
+            let letztStand = -1;
+            let ladenAngestossen = false;
 
             const rechne = () => {
               const doc = view.state.doc;
               const an = aktiv();
+              const recht = rechtschreibung() && woerterbuchBereit();
               letzterDoc = doc;
               letztAktiv = an;
+              letztRecht = rechtschreibung();
+              letztStand = standDerPruefung();
 
               const stellen: Stelle[] = [];
-              if (an) {
+              if (an || recht) {
                 doc.descendants((node, pos) => {
                   if (!node.isTextblock) return true;
                   const text = node.textBetween(
@@ -91,12 +106,18 @@ export function erzeugePruefer({ aktiv, melde }: Optionen) {
                     "\n"
                   );
                   if (!text.trim()) return false;
-                  for (const f of pruefe(text)) {
+                  const funde = entwirre([
+                    ...(an ? pruefe(text) : []),
+                    ...(recht ? pruefeRechtschreibung(text) : []),
+                  ]);
+                  for (const f of funde) {
                     stellen.push({
                       von: pos + 1 + f.von,
                       bis: pos + 1 + f.bis,
                       meldung: f.meldung,
                       ersatz: f.ersatz,
+                      vorschlaege: f.vorschlaege,
+                      wort: f.wort,
                     });
                   }
                   return false; // Textblöcke haben keine weiteren Blöcke
@@ -122,11 +143,32 @@ export function erzeugePruefer({ aktiv, melde }: Optionen) {
               timer = setTimeout(rechne, 500);
             };
 
+            // Wörterbuch im Hintergrund holen, sobald es gebraucht wird
+            const woerterbuchHolen = () => {
+              if (ladenAngestossen || !rechtschreibung() || woerterbuchBereit()) {
+                return;
+              }
+              ladenAngestossen = true;
+              woerterbuchLaden().then(() => {
+                ladenAngestossen = false;
+                planen();
+              });
+            };
+
+            woerterbuchHolen();
             planen(); // erste Prüfung nach dem Laden
 
             return {
               update(v) {
-                if (v.state.doc === letzterDoc && aktiv() === letztAktiv) return;
+                woerterbuchHolen();
+                if (
+                  v.state.doc === letzterDoc &&
+                  aktiv() === letztAktiv &&
+                  rechtschreibung() === letztRecht &&
+                  standDerPruefung() === letztStand
+                ) {
+                  return;
+                }
                 planen();
               },
               destroy() {
