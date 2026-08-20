@@ -65,18 +65,40 @@ export async function manuskriptAlsDocx(
     })
   );
 
+  // Merkt sich, ob der vorige Block eine Überschrift war – das Kapitel
+  // darunter beginnt dann KEINE neue Seite.
+  let nachUeberschrift = false;
+
   bloecke.forEach((el, idx) => {
     const tag = el.tagName.toLowerCase();
     const runs: any[] = [];
     runsSammeln(el, false, false, runs);
     const istErster = idx === 0;
+    const warUeberschrift = nachUeberschrift;
+    nachUeberschrift = tag === "h2";
 
-    if (/^h[1-6]$/.test(tag)) {
+    if (tag === "h2") {
+      // Überschrift über mehreren Kapiteln → in Word die oberste Ebene
+      // („Überschrift 1"). Daran erkennt der Satz für den Verlag den
+      // Zwischentitel zweifelsfrei – er ist kein normaler Satz mehr.
       children.push(
         new Paragraph({
           heading: HeadingLevel.HEADING_1,
-          pageBreakBefore: true, // jedes Kapitel beginnt auf neuer Seite
+          pageBreakBefore: true,
+          alignment: AlignmentType.CENTER,
           spacing: { before: 240, after: 120 },
+          children: runs.length ? runs : [new TextRun(el.textContent || "")],
+        })
+      );
+    } else if (/^h[1-6]$/.test(tag)) {
+      // Kapitel → „Überschrift 2", also eine Ebene unter der Überschrift.
+      // Nur wenn KEINE Überschrift darüber steht, beginnt eine neue Seite.
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          pageBreakBefore: warUeberschrift ? undefined : true,
+          alignment: AlignmentType.CENTER,
+          spacing: { before: warUeberschrift ? 0 : 240, after: 120 },
           children: runs.length ? runs : [new TextRun(el.textContent || "")],
         })
       );
