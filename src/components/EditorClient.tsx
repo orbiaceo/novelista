@@ -705,6 +705,18 @@ export default function EditorClient({
     }
   }
 
+  // ---- Notizheft öffnen (vorher ungespeicherten Text sichern) ----
+  async function notizheftOeffnen() {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (status !== "gespeichert" && editor) {
+      await speichern(editor.getHTML(), titleRef.current);
+    }
+    router.push("/notizheft?p=" + manuscriptId);
+  }
+
   function zuKapitel(pos: number) {
     if (!editor) return;
     editor.chain().focus().setTextSelection(pos + 1).scrollIntoView().run();
@@ -856,6 +868,10 @@ export default function EditorClient({
             <ToolButton onClick={schoenerSchreiben} active={verbessere} label="Schöner schreiben (mit KI)" disabled={korrigiere || verbessere}>
               <Icon name="sparkle" />
               <span className="hidden sm:inline">{verbessere ? "Überarbeite …" : "Schöner"}</span>
+            </ToolButton>
+            <ToolButton onClick={notizheftOeffnen} label="Notizheft (Vorarbeit: Figuren, Orte, Aufbau)">
+              <Icon name="notebook" />
+              <span className="hidden lg:inline">Notizheft</span>
             </ToolButton>
             <ToolButton onClick={() => setSuchenOffen((s) => !s)} active={suchenOffen} label="Suchen & Ersetzen">
               <Icon name="search" />
@@ -1457,6 +1473,7 @@ function Icon({ name }: { name: string }) {
     case "redo": return (<svg {...c}><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4" /></svg>);
     case "search": return (<svg {...c}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>);
     case "gear": return (<svg {...c}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>);
+    case "notebook": return (<svg {...c}><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z" /><path d="M6 3v18M4 7h4M4 12h4M4 17h4M10 8h6M10 12h4" /></svg>);
     case "history": return (<svg {...c}><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7v5l4 2" /></svg>);
     default: return null;
   }
