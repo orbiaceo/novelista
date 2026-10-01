@@ -206,3 +206,9 @@ body {
   font-style: italic;
   font-weight: 400;
 }
+
+/* Notizheft im Seitenfenster: etwas kleiner */
+.notizheft-area.notizheft-klein {
+  font-size: 0.98rem;
+  line-height: 1.65;
+}

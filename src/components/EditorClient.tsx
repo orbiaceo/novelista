@@ -10,6 +10,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { DOMSerializer } from "@tiptap/pm/model";
 import { createClient } from "@/lib/supabase/client";
 import ExportDialog from "@/components/ExportDialog";
+import NotizheftPanel from "@/components/NotizheftPanel";
 
 type SaveStatus = "gespeichert" | "speichert" | "ungespeichert";
 
@@ -102,6 +103,11 @@ export default function EditorClient({
   const [neuOffen, setNeuOffen] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const [exportOffen, setExportOffen] = useState(false);
+
+  // Notizheft neben dem Text: einmal geöffnet, bleibt es geladen
+  const [heftGeladen, setHeftGeladen] = useState(false);
+  const [heftSichtbar, setHeftSichtbar] = useState(false);
+  const heftSpeichern = useRef<(() => Promise<boolean>) | null>(null);
   const [hinweis, setHinweis] = useState<string | null>(null);
   const [kapitel, setKapitel] = useState<Kapitel[]>([]);
   const [woerter, setWoerter] = useState(0);
@@ -705,8 +711,21 @@ export default function EditorClient({
     }
   }
 
-  // ---- Notizheft öffnen (vorher ungespeicherten Text sichern) ----
+  function notizheftDaneben() {
+    setHeftGeladen(true);
+    setHeftSichtbar((s) => !s);
+  }
+
+  // ---- Notizheft groß öffnen (vorher Text UND Notizen sichern) ----
   async function notizheftOeffnen() {
+    if (heftSpeichern.current) {
+      const ok = await heftSpeichern.current();
+      if (!ok) {
+        setHinweis("Notizen konnten nicht gespeichert werden – bitte kurz warten.");
+        setTimeout(() => setHinweis(null), 4000);
+        return;
+      }
+    }
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
@@ -812,7 +831,10 @@ export default function EditorClient({
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div
+      className="flex min-h-screen flex-col"
+      style={{ ["--kopf-hoehe" as string]: `${headerH}px` }}
+    >
       {/* ---- Kopfzeile ---- */}
       <header ref={headerRef} className="sticky top-0 z-20 border-b border-line bg-paper/85 backdrop-blur">
         <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
@@ -869,7 +891,7 @@ export default function EditorClient({
               <Icon name="sparkle" />
               <span className="hidden sm:inline">{verbessere ? "Überarbeite …" : "Schöner"}</span>
             </ToolButton>
-            <ToolButton onClick={notizheftOeffnen} label="Notizheft (Vorarbeit: Figuren, Orte, Aufbau)">
+            <ToolButton onClick={notizheftDaneben} active={heftSichtbar} label="Notizheft neben dem Text (Figuren, Orte, Aufbau)">
               <Icon name="notebook" />
               <span className="hidden lg:inline">Notizheft</span>
             </ToolButton>
@@ -1054,6 +1076,19 @@ export default function EditorClient({
             <EditorContent editor={editor} />
           </div>
         </main>
+
+        {/* ---- Notizheft neben dem Text ---- */}
+        {heftGeladen && (
+          <NotizheftPanel
+            manuscriptId={manuscriptId}
+            userId={userId}
+            art={projektArt}
+            sichtbar={heftSichtbar}
+            onSchliessen={() => setHeftSichtbar(false)}
+            onGrossOeffnen={notizheftOeffnen}
+            speichernRef={heftSpeichern}
+          />
+        )}
       </div>
 
       {hinweis && (
