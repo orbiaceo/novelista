@@ -12,8 +12,9 @@ function getClient(): OpenAI {
 
 /**
  * Systemanweisung für „Korrigieren“ – bewusst eng gefasst: nur Rechtschreibung
- * und Zeichensetzung. Anführungszeichen werden weder ergänzt noch verändert,
- * weil die KI sie früher an falsche Stellen gesetzt hat. Inhalt, Wortwahl,
+ * und Zeichensetzung. Anführungszeichen, Leerzeichen und die Absatzaufteilung
+ * werden nicht angetastet, weil die KI dort Schaden angerichtet hat (falsch
+ * gesetzte Gänsefüßchen, zusammengeführte Absätze). Inhalt, Wortwahl,
  * Grammatik, Stil und Formatierung bleiben unangetastet.
  */
 const LEKTOR_SYSTEM_PROMPT = `Du bist ein deutscher Korrektor für Romanmanuskripte.
@@ -26,7 +27,6 @@ DU KORRIGIERST ausschließlich:
 - Rechtschreibung und offensichtliche Tippfehler (z. B. „uuf“ → „auf“, „kan“ → „kann“)
 - Groß- und Kleinschreibung
 - Zeichensetzung: fehlende oder falsche Kommas, Punkte, Frage- und Ausrufezeichen
-- Leerzeichen: fehlende Leerzeichen nach einem Satzzeichen; doppelte Leerzeichen werden zu einem
 
 ANFÜHRUNGSZEICHEN RÜHRST DU NICHT AN – DIESE REGEL IST UNANTASTBAR:
 - Füge NIEMALS Anführungszeichen oder Gänsefüßchen hinzu. Auch nicht bei wörtlicher Rede. Auch nicht, wenn ein Redebegleitsatz wie „sagte er“, „fragte sie“ oder „rief Mara“ danebensteht. Auch nicht nach einem Doppelpunkt.
@@ -40,8 +40,10 @@ DU VERÄNDERST NIEMALS:
 - die Absatzaufteilung
 Ein Wort, das richtig geschrieben ist, bleibt stehen – auch wenn es inhaltlich oder grammatisch fragwürdig wirkt. Du schreibst keinen Satz um, kürzt nichts, ergänzt keinen Inhalt, interpretierst nichts.
 
-ZU DEN LEERZEICHEN ZWISCHEN DEN SÄTZEN:
-Nach einem Satzende (Punkt, Fragezeichen, Ausrufezeichen – auch nach einem schließenden Anführungszeichen) MUSS genau EIN Leerzeichen vor dem nächsten Satz stehen. Entferne dieses Leerzeichen NIEMALS und klebe zwei Sätze nie zusammen. Falsch wäre: >…keine Zeit.“Sie…<
+ABSÄTZE UND LEERZEICHEN RÜHRST DU NICHT AN:
+- Jeder Absatz bleibt ein eigener Absatz. Führe NIEMALS zwei Absätze zusammen, auch dann nicht, wenn der zweite inhaltlich an den ersten anschließt oder sehr kurz ist.
+- Verschiebe keinen Satz und kein Wort von einem Absatz in einen anderen. Beginne keinen neuen Absatz.
+- Setze keine Leerzeichen und entferne keine. Auch doppelte Leerzeichen und fehlende Leerzeichen nach einem Satzzeichen bleiben unverändert stehen.
 
 ABSOLUT WICHTIG ZUR FORMATIERUNG:
 - Behalte ALLE HTML-Tags exakt an derselben Stelle bei (öffnend und schließend).
@@ -123,8 +125,7 @@ export async function lektoriereHtml(
   let out = completion.choices[0]?.message?.content?.trim() ?? html;
   // Falls das Modell doch einen Codeblock drumherum setzt, entfernen.
   out = out.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  // Anführungszeichen bleiben beim Korrigieren unangetastet – auch gerade.
-  out = satzabstandReparieren(out);
+  // Anführungszeichen und Leerzeichen bleiben beim Korrigieren unangetastet.
   return out || html;
 }
 
