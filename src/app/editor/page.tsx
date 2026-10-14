@@ -43,7 +43,7 @@ export default async function EditorPage({
   // Inhalt des gewählten Projekts laden
   const { data: dok } = await supabase
     .from("manuscripts")
-    .select("content,title,status,art")
+    .select("content,title,status,art,updated_at")
     .eq("id", aktiv.id)
     .single();
 
@@ -52,6 +52,7 @@ export default async function EditorPage({
       key={aktiv.id}
       initialContent={dok?.content ?? ""}
       initialTitle={dok?.title ?? "Mein Roman"}
+      initialStand={dok?.updated_at ?? null}
       manuscriptId={aktiv.id}
       userId={user.id}
       projektStatus={dok?.status ?? "aktiv"}

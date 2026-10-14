@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import ExportDialog from "@/components/ExportDialog";
 import NotizheftPanel from "@/components/NotizheftPanel";
 
-type SaveStatus = "gespeichert" | "speichert" | "ungespeichert";
+type SaveStatus = "gespeichert" | "speichert" | "ungespeichert" | "konflikt";
 
 interface ProjektInfo {
   id: string;
@@ -26,6 +26,7 @@ interface ProjektInfo {
 interface Props {
   initialContent: string;
   initialTitle: string;
+  initialStand: string | null; // updated_at beim Laden – schützt vor Überschreiben
   manuscriptId: string;
   userId: string;
   projektStatus: string;
@@ -78,6 +79,7 @@ function leseKapitel(ed: Editor): Kapitel[] {
 export default function EditorClient({
   initialContent,
   initialTitle,
+  initialStand,
   manuscriptId,
   userId,
   projektStatus,
@@ -292,40 +294,150 @@ export default function EditorClient({
     [supabase, userId]
   );
 
-  // ---- Automatisches Speichern (entprellt) ----
-  const speichern = useCallback(
-    async (html: string, neuerTitel: string) => {
+  // ---- Automatisches Speichern (entprellt, sicher) ----
+  // offen  = noch nicht gespeicherter Stand
+  // stand  = updated_at des Textes, den dieses Fenster zuletzt kannte.
+  //          Gespeichert wird nur, wenn die Datenbank noch genau diesen Stand
+  //          hat. Sonst wurde der Text woanders geändert (anderes Gerät,
+  //          anderer Tab, veraltete Seite) – dann wird NICHT überschrieben.
+  const offen = useRef<{ html: string; titel: string } | null>(null);
+  const stand = useRef<string | null>(initialStand);
+  const laeuft = useRef<Promise<boolean> | null>(null);
+  const konflikt = useRef(false);
+  const speichernRef = useRef<() => Promise<boolean>>(async () => true);
+
+  const speichern = useCallback(async (): Promise<boolean> => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    // nie zwei Speichervorgänge gleichzeitig
+    while (laeuft.current) await laeuft.current;
+    const paket = offen.current;
+    if (paket === null) return true;
+    if (konflikt.current) return false;
+
+    const lauf = (async (): Promise<boolean> => {
       setStatus("speichert");
-      const { error } = await supabase
+      let anfrage = supabase
         .from("manuscripts")
         .update({
-          content: html,
-          title: neuerTitel,
-          word_count: zaehleWoerter(
-            html.replace(/<[^>]+>/g, " ")
-          ),
+          content: paket.html,
+          title: paket.titel,
+          word_count: zaehleWoerter(paket.html.replace(/<[^>]+>/g, " ")),
         })
         .eq("id", manuscriptId);
-      setStatus(error ? "ungespeichert" : "gespeichert");
-      sicherungVielleicht(html, neuerTitel);
-    },
-    [supabase, manuscriptId, sicherungVielleicht]
-  );
+      if (stand.current) anfrage = anfrage.eq("updated_at", stand.current);
+      const { data, error } = await anfrage.select("updated_at");
+
+      const nochmal = () => {
+        setStatus("ungespeichert");
+        // in 5 Sekunden noch einmal versuchen – nichts geht verloren
+        saveTimer.current = setTimeout(() => speichernRef.current(), 5000);
+        return false;
+      };
+
+      if (error) return nochmal();
+
+      if (!data || data.length === 0) {
+        // Nichts gespeichert. Warum? Aktuellen Stand in der Datenbank ansehen.
+        const { data: zeile } = await supabase
+          .from("manuscripts")
+          .select("updated_at")
+          .eq("id", manuscriptId)
+          .maybeSingle();
+        if (zeile && zeile.updated_at !== stand.current) {
+          // Text wurde woanders geändert: nicht überschreiben,
+          // sondern diese Fassung als Sicherung ablegen.
+          konflikt.current = true;
+          await supabase.from("manuscript_backups").insert({
+            user_id: userId,
+            manuscript_id: manuscriptId,
+            title: `${paket.titel} (Fassung dieses Geräts)`,
+            content: paket.html,
+          });
+          setStatus("konflikt");
+          return false;
+        }
+        // Anmeldung abgelaufen oder Verbindung weg – später erneut
+        return nochmal();
+      }
+
+      stand.current = data[0].updated_at;
+      if (offen.current === paket) offen.current = null;
+      if (offen.current !== null) {
+        setStatus("ungespeichert");
+        saveTimer.current = setTimeout(() => speichernRef.current(), 1200);
+      } else {
+        setStatus("gespeichert");
+      }
+      sicherungVielleicht(paket.html, paket.titel);
+      return true;
+    })();
+
+    laeuft.current = lauf;
+    try {
+      return await lauf;
+    } finally {
+      if (laeuft.current === lauf) laeuft.current = null;
+    }
+  }, [supabase, manuscriptId, userId, sicherungVielleicht]);
+
+  useEffect(() => {
+    speichernRef.current = speichern;
+  }, [speichern]);
 
   const planeSpeichern = useCallback(
     (html: string, neuerTitel: string) => {
+      offen.current = { html, titel: neuerTitel };
+      if (konflikt.current) return; // Hinweis bleibt stehen, nichts überschreiben
       setStatus("ungespeichert");
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => speichern(html, neuerTitel), 1200);
+      saveTimer.current = setTimeout(() => speichernRef.current(), 1200);
     },
-    [speichern]
+    []
   );
 
+  // Beim Wegwechseln (App im Hintergrund, Tab zu, Seitenwechsel):
+  // den Rest sofort sichern statt ihn zu verwerfen.
   useEffect(() => {
+    const sofort = () => {
+      if (document.visibilityState === "hidden" && offen.current !== null) {
+        speichernRef.current();
+      }
+    };
+    const warnen = (e: BeforeUnloadEvent) => {
+      if (offen.current !== null) {
+        speichernRef.current();
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    document.addEventListener("visibilitychange", sofort);
+    window.addEventListener("pagehide", sofort);
+    window.addEventListener("beforeunload", warnen);
     return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      document.removeEventListener("visibilitychange", sofort);
+      window.removeEventListener("pagehide", sofort);
+      window.removeEventListener("beforeunload", warnen);
+      if (offen.current !== null) speichernRef.current();
+      else if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
+
+  // Bei Konflikt: aktuelle Fassung sichern, dann neu laden
+  async function konfliktNeuLaden() {
+    if (editor) {
+      await supabase.from("manuscript_backups").insert({
+        user_id: userId,
+        manuscript_id: manuscriptId,
+        title: `${titleRef.current} (Fassung dieses Geräts)`,
+        content: editor.getHTML(),
+      });
+    }
+    offen.current = null;
+    window.location.reload();
+  }
 
   function aktualisiereTitel(value: string) {
     setTitle(value);
@@ -507,16 +619,18 @@ export default function EditorClient({
   }
 
   async function abmelden() {
+    await speichern();
     await supabase.auth.signOut();
     router.push("/login");
   }
 
   // ---- Projektverwaltung ----
-  function projektWaehlen(id: string) {
+  async function projektWaehlen(id: string) {
     if (id === manuscriptId) {
       setBibliothek(false);
       return;
     }
+    await speichern();
     router.push("/editor?p=" + id);
   }
 
@@ -539,7 +653,10 @@ export default function EditorClient({
       .insert({ user_id: userId, title: name.trim(), art })
       .select("id")
       .single();
-    if (data?.id) router.push("/editor?p=" + data.id);
+    if (data?.id) {
+      await speichern();
+      router.push("/editor?p=" + data.id);
+    }
   }
 
   // Macht NUR die Zeile mit dem Cursor zum Titel/Kapitel.
@@ -726,12 +843,10 @@ export default function EditorClient({
         return;
       }
     }
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    if (status !== "gespeichert" && editor) {
-      await speichern(editor.getHTML(), titleRef.current);
+    if (!(await speichern())) {
+      setHinweis("Text noch nicht gespeichert – bitte kurz warten.");
+      setTimeout(() => setHinweis(null), 4000);
+      return;
     }
     router.push("/notizheft?p=" + manuscriptId);
   }
@@ -872,6 +987,11 @@ export default function EditorClient({
           )}
 
           <div className="ml-auto flex items-center gap-2">
+            {status !== "gespeichert" && (
+              <span className="text-xs text-ink-faint sm:hidden">
+                {status === "speichert" ? "…" : "●"}
+              </span>
+            )}
             <span className="hidden text-xs text-ink-faint sm:inline">
               {woerter.toLocaleString("de-DE")} Wörter
               {woerter > 0 && projektArt === "roman"
@@ -1090,6 +1210,24 @@ export default function EditorClient({
           />
         )}
       </div>
+
+      {status === "konflikt" && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper px-4 py-4 shadow-lg sm:inset-x-auto sm:bottom-6 sm:left-1/2 sm:max-w-lg sm:-translate-x-1/2 sm:rounded-2xl sm:border">
+          <p className="text-sm text-ink">
+            Dieser Text wurde inzwischen an anderer Stelle geändert (anderes
+            Gerät, anderer Tab oder ein veralteter Stand). Damit nichts
+            verloren geht, wurde hier <strong>nicht</strong> überschrieben.
+            Deine Fassung von diesem Gerät liegt unter „Sicherungen“.
+          </p>
+          <button
+            type="button"
+            onClick={konfliktNeuLaden}
+            className="mt-3 rounded-full bg-ink px-4 py-2 text-sm text-paper"
+          >
+            Sichern und neu laden
+          </button>
+        </div>
+      )}
 
       {hinweis && (
         <div className="rise fixed bottom-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-line bg-ink px-5 py-2.5 text-sm text-paper shadow-lg">
@@ -1319,6 +1457,7 @@ function seitenSchaetzung(woerter: number): number {
 }
 
 function statusText(s: SaveStatus) {
+  if (s === "konflikt") return "nicht gespeichert (Konflikt)";
   if (s === "speichert") return "speichert …";
   if (s === "ungespeichert") return "nicht gespeichert";
   return "gespeichert";
