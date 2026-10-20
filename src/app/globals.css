@@ -113,6 +113,33 @@ body {
   color: theme("colors.ink-soft");
   font-style: italic;
 }
+/* ---- Botschaft: Nachricht aus einem anderen Ort ----
+   Aufrecht, gesperrt, zentriert, mit feinen Linien darüber und darunter.
+   Mehrere Botschaft-Absätze direkt hintereinander bilden einen Block. */
+.manuscript-area p.botschaft {
+  margin: 0 1.5em;
+  text-align: center;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 1.05em;
+  letter-spacing: 0.12em;
+  line-height: 1.8;
+  color: theme("colors.ink");
+}
+.manuscript-area p.botschaft::before,
+.manuscript-area p.botschaft::after {
+  content: "";
+  display: block;
+  width: 40px;
+  border-top: 1px solid theme("colors.ink-faint");
+  margin: 1.1em auto 0.7em;
+}
+.manuscript-area p.botschaft::after {
+  margin: 0.7em auto 1.1em;
+}
+.manuscript-area p.botschaft + p.botschaft::before,
+.manuscript-area p.botschaft:has(+ p.botschaft)::after {
+  display: none;
+}
 /* Platzhalter, wenn leer */
 .manuscript-area p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

@@ -11,6 +11,7 @@ import { DOMSerializer } from "@tiptap/pm/model";
 import { createClient } from "@/lib/supabase/client";
 import ExportDialog from "@/components/ExportDialog";
 import NotizheftPanel from "@/components/NotizheftPanel";
+import { Botschaft } from "@/lib/botschaft";
 
 type SaveStatus = "gespeichert" | "speichert" | "ungespeichert" | "konflikt";
 
@@ -232,6 +233,7 @@ export default function EditorClient({
       StarterKit.configure({ heading: { levels: [1, 2] } }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: "Es war einmal …" }),
+      Botschaft,
       gedichtEnter,
     ],
     content: vorbereiten(initialContent),
@@ -1071,6 +1073,13 @@ export default function EditorClient({
           </FmtButton>
           <FmtButton onClick={deutscheAnfuehrung} label="Deutsche Anführungszeichen „…“ (für Dialoge)">
             <span className="font-serif text-base leading-none">„“</span>
+          </FmtButton>
+          <FmtButton
+            onClick={() => editor.chain().focus().toggleBotschaft().run()}
+            active={editor.isActive("botschaft")}
+            label="Als Botschaft markieren (Nachricht, die die Figuren vorfinden)"
+          >
+            <span className="font-botschaft text-[15px] tracking-[0.12em]">Botschaft</span>
           </FmtButton>
           <div className="mx-1 h-5 w-px bg-line" />
           <FmtButton
