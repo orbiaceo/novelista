@@ -114,11 +114,11 @@ body {
   font-style: italic;
 }
 /* ---- Botschaft: Nachricht aus einem anderen Ort ----
-   Aufrecht, gesperrt, zentriert, mit feinen Linien darüber und darunter.
+   Aufrecht, gesperrt, linksbündig ohne Einrückung, mit feinen Linien darüber und darunter.
    Mehrere Botschaft-Absätze direkt hintereinander bilden einen Block. */
 .manuscript-area p.botschaft {
-  margin: 0 1.5em;
-  text-align: center;
+  margin: 0;
+  text-align: left !important;
   font-family: "Cormorant Garamond", Georgia, serif;
   font-size: 1.05em;
   letter-spacing: 0.12em;
